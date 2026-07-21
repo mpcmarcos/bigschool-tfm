@@ -19,6 +19,10 @@ El objetivo es mantener consistencia entre recursos de diseño y su implementaci
 ### Backend
 - **APIs en .NET Core 10** (ASP.NET Core)
 
+### Base de datos
+- **MySQL**
+- **Entity Framework Core** como ORM oficial para acceso a datos y migraciones
+
 ### Plugin de Sketch (tecnología recomendada)
 Para el plugin de Sketch se recomienda:
 
@@ -39,6 +43,8 @@ src/
   resources-api/         # backend APIs (.NET Core 10)
   resources-app-test/    # tests frontend
   resources-api-test/    # tests backend
+.github/
+  workflows/             # pipelines CI/CD y despliegue (GitHub Actions)
 ```
 
 Reglas:
@@ -76,6 +82,8 @@ Todo el proyecto debe desarrollarse con **Test-Driven Development**:
 - Contratos DTO versionados cuando cambien APIs.
 - Validación de entrada y respuestas con códigos HTTP correctos.
 - Logging estructurado y trazabilidad por request/correlation id.
+- Acceso a datos con **Entity Framework Core** (`DbContext`, configuraciones por entidad y repositorios/servicios según corresponda a la capa de infraestructura).
+- Gestión de esquema mediante **migraciones de Entity Framework Core** versionadas en el repositorio.
 
 ### Integración con Figma y Sketch
 - Definir adaptadores por proveedor (`FigmaAdapter`, `SketchAdapter`).
@@ -90,6 +98,10 @@ Todo el proyecto debe desarrollarse con **Test-Driven Development**:
 - Validar y sanitizar datos externos de plugins/APIs.
 - Cobertura mínima recomendada en lógica crítica: **>= 80%**.
 - Pipeline CI con tests automáticos de frontend y backend.
+- Todo el proyecto debe correr en local con **Docker** usando **Docker Compose**.
+- El repositorio está alojado en **GitHub**.
+- El despliegue se ejecutará mediante **GitHub Actions** en **Azure**.
+- La cadena de conexión de MySQL para Entity Framework Core debe configurarse por variables de entorno en local, CI y despliegue.
 
 ---
 
@@ -101,3 +113,11 @@ Una tarea se considera completada si:
 - Se actualiza documentación técnica afectada.
 - No introduce regresiones funcionales ni de sincronización.
 
+---
+
+## 8) Decisiones de despliegue en Azure
+Servicios seleccionados:
+
+- **Frontend**: Azure Static Web Apps.
+- **Backend (.NET)**: Azure App Service.
+- **Base de datos (MySQL)**: Azure Database for MySQL - Flexible Server.
