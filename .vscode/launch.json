@@ -1,0 +1,60 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Backend: Launch resources-api",
+      "type": "coreclr",
+      "request": "launch",
+      "program": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/src/resources-api/resources-api.csproj"
+      ],
+      "cwd": "${workspaceFolder}/src/resources-api",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Frontend: Start dev server",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/src/resources-app"
+    },
+    {
+      "name": "Frontend: Launch Chrome",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/src/resources-app/src"
+    },
+    {
+      "name": "Backend tests: Run resources-api-test",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "dotnet test ${workspaceFolder}/src/resources-api-test/resources-api-test.csproj"
+    },
+    {
+      "name": "Frontend tests: Run resources-app-test",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm test",
+      "cwd": "${workspaceFolder}/src/resources-app-test"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack: API + Frontend + Chrome",
+      "configurations": [
+        "Backend: Launch resources-api",
+        "Frontend: Start dev server",
+        "Frontend: Launch Chrome"
+      ],
+      "stopAll": true
+    }
+  ]
+}
