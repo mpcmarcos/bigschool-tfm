@@ -143,6 +143,14 @@ Authentication__Jwt__RefreshTokenDays="30" \
 dotnet run --project src/resources-api/resources-api.csproj
 ```
 
+Configuración recomendada en desarrollo para secretos (User Secrets de .NET):
+```bash
+cd src/resources-api
+dotnet user-secrets init
+dotnet user-secrets set "Authentication:Google:ClientId" "<google-client-id>"
+dotnet user-secrets set "Authentication:Google:ClientSecret" "<google-client-secret>"
+```
+
 ### Ejecutar tests en contenedores
 Backend:
 ```bash

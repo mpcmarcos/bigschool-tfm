@@ -353,6 +353,17 @@ Variables de entorno equivalentes en .NET:
 - `Authentication__Jwt__AccessTokenMinutes`
 - `Authentication__Jwt__RefreshTokenDays`
 
+### Recomendación para secretos en desarrollo (.NET User Secrets)
+
+No guardar `ClientSecret` en `appsettings.Development.json`. Usar User Secrets:
+
+```bash
+cd src/resources-api
+dotnet user-secrets init
+dotnet user-secrets set "Authentication:Google:ClientId" "<google-client-id>"
+dotnet user-secrets set "Authentication:Google:ClientSecret" "<google-client-secret>"
+```
+
 ## 10) Plan por fases
 
 ### Fase A — Contrato y base técnica
