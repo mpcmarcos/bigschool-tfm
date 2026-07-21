@@ -65,6 +65,10 @@ cp .env.example .env
 npm run dev
 ```
 
+Variables esperadas en `src/resources-app/.env` para login social:
+- `VITE_API_BASE_URL`
+- `VITE_GOOGLE_CLIENT_ID`
+
 ### URLs a abrir (sin Docker)
 - Frontend: `http://localhost:5173`
 - API base: `http://localhost:5000`
@@ -124,6 +128,18 @@ Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=res
 Si ejecutas la API fuera de Docker y quieres conectar contra este MySQL:
 ```bash
 ConnectionStrings__Default="Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;" \
+dotnet run --project src/resources-api/resources-api.csproj
+```
+
+Configuración adicional de autenticación (variables de entorno .NET):
+```bash
+Authentication__Google__ClientId="<google-client-id>" \
+Authentication__Google__ClientSecret="<google-client-secret>" \
+Authentication__Google__CallbackPath="/signin-google" \
+Authentication__Jwt__Issuer="resources-api" \
+Authentication__Jwt__Audience="resources-app" \
+Authentication__Jwt__AccessTokenMinutes="15" \
+Authentication__Jwt__RefreshTokenDays="30" \
 dotnet run --project src/resources-api/resources-api.csproj
 ```
 

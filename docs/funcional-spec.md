@@ -2,7 +2,7 @@
 
 ## 1) Objetivo del producto
 
-Construir un software para centralizar la gestión de textos de interfaz (resources), su versionado, su localización por idioma y su reutilización entre páginas/proyectos, con colaboración entre usuarios y exportación para desarrollo (JSON/XML).
+Construir un software para centralizar la gestión de textos de interfaz (resources), su versionado, su localización por idioma y su reutilización entre páginas/proyectos, con colaboración entre usuarios y exportación para desarrollo (JSON/XML). Cada proyecto gestiona su propio conjunto de N idiomas soportados.
 
 Inspiración (simplificada) basada en Frontitude: colaboración centralizada, localización por idiomas y handoff técnico mediante claves/exportación.
 
@@ -12,6 +12,7 @@ Inspiración (simplificada) basada en Frontitude: colaboración centralizada, lo
 
 ### Incluido
 - Gestión de proyectos, páginas, versiones y recursos.
+- Gestión de idiomas soportados por proyecto (N idiomas por proyecto).
 - Login social y compartición de proyectos.
 - OCR al crear página desde imagen.
 - Detección de recursos duplicados y sugerencia de recurso compartido.
@@ -30,10 +31,12 @@ Inspiración (simplificada) basada en Frontitude: colaboración centralizada, lo
 
 1. **User**
    - Identifica al usuario autenticado por login social.
+   - Mantiene la fecha/hora de último login (`lastLoginAt`).
 
 2. **Project**
    - Contenedor principal.
    - Relación: `Project 1..N Page`.
+   - Relación: `Project 1..N ProjectLanguage` (idiomas soportados por el proyecto).
    - Acceso: creador + usuarios compartidos.
 
 3. **ProjectMember**
@@ -67,17 +70,24 @@ Inspiración (simplificada) basada en Frontitude: colaboración centralizada, lo
    - Texto final traducido por idioma para una versión concreta de recurso.
    - Relación: `ResourceText N..1 ResourceVersion` y `ResourceText N..1 Language`.
 
-10. **OCRImportJob** (soporte)
-    - Resultado de importación OCR de una imagen para propuesta de recursos detectados.
+10. **ProjectLanguage**
+   - Asociación entre proyecto e idioma habilitado.
+   - Permite definir N idiomas por proyecto.
+   - Relación: `ProjectLanguage N..1 Project` y `ProjectLanguage N..1 Language`.
+
+11. **OCRImportJob** (soporte)
+   - Resultado de importación OCR de una imagen para propuesta de recursos detectados.
 
 ## 3.2 Cardinalidades clave
 
 - `Project 1..N Page`
+- `Project 1..N ProjectLanguage`
 - `Page 1..N PageVersion` (exactamente una default activa)
 - `PageVersion 1..N Resource`
 - `Resource 1..N ResourceVersion` (exactamente una default activa)
 - `ResourceVersion 1..N ResourceText`
 - `Language 1..N ResourceText`
+- `Language 1..N ProjectLanguage`
 - Un `Project` se comparte con `User` vía `ProjectMember`.
 
 ## 3.3 Diagrama gráfico (Mermaid)
@@ -87,15 +97,18 @@ erDiagram
     USER ||--o{ PROJECT_MEMBER : belongs_to
     PROJECT ||--o{ PROJECT_MEMBER : has
     PROJECT ||--o{ PAGE : has
+    PROJECT ||--o{ PROJECT_LANGUAGE : supports
     PAGE ||--o{ PAGE_VERSION : has
     PAGE_VERSION ||--o{ RESOURCE : has
     RESOURCE ||--o{ RESOURCE_VERSION : has
     RESOURCE_VERSION ||--o{ RESOURCE_TEXT : has
+    LANGUAGE ||--o{ PROJECT_LANGUAGE : available_in
     LANGUAGE ||--o{ RESOURCE_TEXT : translates
 
     USER {
       uuid id
       string email
+      datetime lastLoginAt
       datetime createdAt
     }
     PROJECT {
@@ -109,6 +122,13 @@ erDiagram
       uuid projectId
       uuid userId
       string role
+    }
+    PROJECT_LANGUAGE {
+      uuid id
+      uuid projectId
+      uuid languageId
+      boolean isDefault
+      boolean isDeleted
     }
     PAGE {
       uuid id
@@ -158,6 +178,7 @@ erDiagram
 
 1. **Acceso a proyectos**
    - Solo acceden: usuario creador y usuarios con compartición activa.
+   - En cada login exitoso, se actualiza `User.lastLoginAt`.
 
 2. **Versiones default**
    - Cada `Page` tiene exactamente una `PageVersion` marcada `isDefault=true`.
@@ -166,6 +187,9 @@ erDiagram
 3. **Códigos de idioma**
    - Formato BCP-47 (ej. `es-ES`, `es-MX`, `pt-BR`).
    - Un `(resourceVersionId, languageCode)` no puede duplicarse.
+   - Un `Project` puede tener N idiomas soportados, gestionados vía `ProjectLanguage`.
+   - Un `(projectId, languageId)` no puede duplicarse.
+   - Cada `Project` debe tener al menos un idioma activo y exactamente uno marcado como default (`isDefault=true`).
 
 4. **Detección de duplicados de resource**
    - Al crear resource nuevo, buscar coincidencias por nombre normalizado y/o similitud.
@@ -203,6 +227,23 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 - `name`
 - `description` (opcional)
 - `ownerUserId`
+- `createdAt`
+- `updatedAt`
+- `isDeleted`
+
+### User
+- `id`
+- `email`
+- `lastLoginAt`
+- `createdAt`
+- `updatedAt`
+- `isDeleted`
+
+### ProjectLanguage
+- `id`
+- `projectId`
+- `languageId`
+- `isDefault`
 - `createdAt`
 - `updatedAt`
 - `isDeleted`
@@ -294,6 +335,8 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 
 4. **Idiomas y textos**
    - Alta de idiomas por código.
+   - Asignación de N idiomas soportados por proyecto.
+   - Definición de idioma default por proyecto.
    - Gestión de `ResourceText` por `resourceVersion + idioma`.
 
 5. **Detección de duplicados de resource**
@@ -348,7 +391,8 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 4. Sube imagen, OCR propone resources.
 5. Sistema detecta resource duplicado y sugiere reutilizar.
 6. Usuario crea/edita traducciones (`ResourceText`) por idioma.
-7. Usuario exporta recursos en JSON/XML por proyecto/página/recurso.
+7. Proyecto mantiene su conjunto de N idiomas soportados (con uno default).
+8. Usuario exporta recursos en JSON/XML por proyecto/página/recurso.
 
 ---
 
@@ -356,6 +400,7 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 
 - Se puede crear un proyecto y compartirlo con al menos un usuario.
 - Un usuario no compartido no puede acceder al proyecto.
+- Un proyecto permite configurar N idiomas soportados y mantener uno default activo.
 - Cada página y resource mantiene una única versión default válida.
 - Se puede guardar texto por idioma (`ResourceText`) para una versión de resource.
 - Al crear resource duplicado, el sistema alerta y propone compartir/reutilizar.
