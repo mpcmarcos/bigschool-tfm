@@ -322,63 +322,70 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
    - Login/logout por proveedor social.
    - Creación automática de perfil básico.
 
-2. **Gestión de proyectos + compartición**
+2. **Home pública de producto (`02-feature-home`)**
+   - Mostrar logo generado `resourceApp`.
+   - Mostrar menú superior con link a login.
+   - Mostrar carrusel de funcionalidades destacadas (inspiración Frontitude).
+   - Mostrar bloque de 10 clientes con logos ficticios.
+   - Mostrar comentarios de clientes con foto por comentario, optimizadas para web (preferiblemente WebP).
+
+3. **Gestión de proyectos + compartición**
    - Crear proyecto.
    - Compartir con usuarios.
    - Roles mínimos (`viewer`, `editor`).
 
-3. **Gestión jerárquica base**
+4. **Gestión jerárquica base**
    - Crear páginas dentro de proyecto.
    - Crear versiones de página y marcar default.
    - Crear resources, versiones de resource y marcar default.
    - Crear resources directamente dentro de una `PageVersion` (relación 1:N).
 
-4. **Idiomas y textos**
+5. **Idiomas y textos**
    - Alta de idiomas por código.
    - Asignación de N idiomas soportados por proyecto.
    - Definición de idioma default por proyecto.
    - Gestión de `ResourceText` por `resourceVersion + idioma`.
 
-5. **Detección de duplicados de resource**
+6. **Detección de duplicados de resource**
    - Aviso al crear resource con sugerencia de reutilización/compartición.
 
-6. **Control de acceso**
+7. **Control de acceso**
    - Solo miembros del proyecto pueden listar/editar su contenido.
 
 ## P1 — Alta prioridad
 
-7. **Crear página desde imagen + OCR**
+8. **Crear página desde imagen + OCR**
    - Subida de imagen.
    - Extracción OCR y propuesta de resources detectados.
    - Confirmación manual antes de guardar.
 
-8. **Exportación JSON/XML**
+9. **Exportación JSON/XML**
    - Exportación por:
      - Proyecto (todos los recursos)
      - Página (recursos de la página)
      - Resource individual
    - Incluir diferentes versiones en la exportación.
 
-9. **Búsqueda y filtrado**
+10. **Búsqueda y filtrado**
    - Filtrar por proyecto, página, resource, versión, idioma.
 
 ## P2 — Prioridad media
 
-10. **Historial y auditoría**
+11. **Historial y auditoría**
     - Registro de cambios por entidad (quién/cuándo/qué).
 
-11. **Reutilización avanzada**
+12. **Reutilización avanzada**
     - Sugerencias de consolidación de resources equivalentes.
 
-12. **Estados de ciclo de vida**
+13. **Estados de ciclo de vida**
     - Draft/reviewed/approved para `ResourceText` o `ResourceVersion`.
 
 ## P3 — Evolutivo
 
-13. **Permisos granulares avanzados**
+14. **Permisos granulares avanzados**
     - Control fino por página o por recurso.
 
-14. **Automatización de handoff**
+15. **Automatización de handoff**
     - Exportaciones programadas o vía API.
 
 ---
@@ -386,13 +393,14 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 ## 8) Casos de uso clave (resumen)
 
 1. Usuario inicia sesión social y crea proyecto.
-2. Comparte proyecto con otro usuario (editor).
-3. Crea página y su versión default.
-4. Sube imagen, OCR propone resources.
-5. Sistema detecta resource duplicado y sugiere reutilizar.
-6. Usuario crea/edita traducciones (`ResourceText`) por idioma.
-7. Proyecto mantiene su conjunto de N idiomas soportados (con uno default).
-8. Usuario exporta recursos en JSON/XML por proyecto/página/recurso.
+2. Usuario visita la home pública y accede al login desde menú superior.
+3. Comparte proyecto con otro usuario (editor).
+4. Crea página y su versión default.
+5. Sube imagen, OCR propone resources.
+6. Sistema detecta resource duplicado y sugiere reutilizar.
+7. Usuario crea/edita traducciones (`ResourceText`) por idioma.
+8. Proyecto mantiene su conjunto de N idiomas soportados (con uno default).
+9. Usuario exporta recursos en JSON/XML por proyecto/página/recurso.
 
 ---
 
@@ -406,3 +414,4 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 - Al crear resource duplicado, el sistema alerta y propone compartir/reutilizar.
 - Se puede exportar en JSON y XML desde proyecto, página y resource individual.
 - Se soporta creación de página mediante imagen con flujo OCR + confirmación.
+- La home pública muestra logo `resourceApp`, acceso a login, carrusel de funcionalidades, 10 clientes ficticios y testimonios con fotos optimizadas para web.

@@ -36,11 +36,36 @@ En `docs/user/` está documentado el paso a paso del trabajo realizado con GitHu
 
 ### Frontend
 UI con flujo de autenticación:
+- Ruta pública `/` (Home de producto)
 - Ruta pública `/login`
 - Ruta protegida `/projects`
-- Redirección en `/` según sesión
 - Login social (Google) contra API
 - Logout con limpieza de sesión en cliente
+
+## Feature Home implementada (`02-feature-home`)
+
+Nueva home pública en `/` con:
+- logo neon `ResouceApp`
+- menú superior con link directo a `/login` y toggle modo oscuro/claro
+- bloque destacado de funcionalidades en formato carrusel (inspiración Frontitude)
+- bloque de 10 clientes ficticios con logos recreados en estilo neon
+- bloque de comentarios de clientes con foto por comentario
+- testimonios en assets locales WebP para optimización web
+
+### Frontend tests añadidos/actualizados
+
+En `src/resources-app-test/App.integration.test.tsx` se cubren:
+- render de Home con estructura principal
+- navegación Home -> Login
+- interacción del carrusel
+- cambio de modo oscuro/claro desde menú
+- validación de imágenes de testimonios optimizadas para web (preferencia WebP)
+- protección de `/projects` para usuarios no autenticados
+- login, persistencia de sesión, error de login y logout
+
+Documentación detallada de la feature:
+- `docs/02-feature-home/README.md`
+- `docs/02-feature-home/plan.md`
 
 ## Requisitos
 

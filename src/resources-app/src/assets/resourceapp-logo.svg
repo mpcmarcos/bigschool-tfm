@@ -1,0 +1,36 @@
+<svg width="700" height="150" viewBox="0 0 700 150" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="iconBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1CFDE0"/>
+      <stop offset="48%" stop-color="#6D64FF"/>
+      <stop offset="100%" stop-color="#359DFF"/>
+    </linearGradient>
+    <linearGradient id="textNeon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#96FFF3"/>
+      <stop offset="45%" stop-color="#DCC8FF"/>
+      <stop offset="100%" stop-color="#9DDAFF"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2DF7E7" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#2DF7E7" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glowStrong" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#49FFE5" flood-opacity="0.8"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#7A67FF" flood-opacity="0.72"/>
+    </filter>
+    <filter id="glowSoft" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#83D8FF" flood-opacity="0.58"/>
+    </filter>
+  </defs>
+  <rect x="3" y="3" width="694" height="144" rx="34" fill="#0B1020"/>
+  <rect x="10" y="10" width="170" height="130" rx="30" fill="url(#iconBg)" filter="url(#glowStrong)"/>
+  <path d="M57 49H135L109 75L135 101H57L81 75L57 49Z" fill="#0B1020" fill-opacity="0.76"/>
+  <path d="M51 67H22V74H51V67Z" fill="url(#trail)" filter="url(#glowSoft)"/>
+  <path d="M45 82H8V89H45V82Z" fill="url(#trail)" filter="url(#glowSoft)"/>
+  <path d="M51 97H26V104H51V97Z" fill="url(#trail)" filter="url(#glowSoft)"/>
+
+  <text x="206" y="96" fill="url(#textNeon)" font-size="66" font-family="Arial, sans-serif" font-weight="800" font-style="italic" letter-spacing="1.1" filter="url(#glowStrong)">ResouceApp</text>
+  <path d="M615 63H680" stroke="#59FFE7" stroke-width="6" stroke-linecap="round" opacity="0.84"/>
+  <path d="M625 82H690" stroke="#7A8AFF" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+  <path d="M635 101H694" stroke="#47C8FF" stroke-width="6" stroke-linecap="round" opacity="0.82"/>
+</svg>

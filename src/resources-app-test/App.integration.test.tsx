@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from '../resources-app/src/App'
 
@@ -12,7 +12,7 @@ const buildJsonResponse = (body: unknown, status = 200) =>
     }),
   )
 
-describe('App login flow', () => {
+describe('App Home/Login/Projects flow', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     localStorage.clear()
@@ -20,13 +20,78 @@ describe('App login flow', () => {
     cleanup()
   })
 
-  it('renders login screen for anonymous user', () => {
+  it('renders home with generated logo, login link, featured content and clients section', () => {
     render(<App />)
+
+    expect(screen.getByAltText('ResouceApp logo')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Login' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Diseño y copy siempre sincronizados con producto.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Equipos que ya lo usan' })).toBeInTheDocument()
+
+    const clientsSection = screen.getByLabelText('Clientes que confían en el producto')
+    expect(within(clientsSection).getAllByRole('listitem')).toHaveLength(10)
+    expect(screen.getByRole('img', { name: 'Logo de NexaGrid' }).getAttribute('src')).toContain('data:image/svg+xml')
+  })
+
+  it('opens login screen from top navigation', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Login' }))
     expect(screen.getByRole('heading', { name: 'Iniciar sesión' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Continuar con Google' })).toBeInTheDocument()
   })
 
-  it('redirects authenticated user to projects and allows logout', async () => {
+  it('navigates to home sections from login page links', async () => {
+    window.history.pushState({}, '', '/login')
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('link', { name: 'Features' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Diseño y copy siempre sincronizados con producto.' })).toBeInTheDocument()
+      expect(window.location.pathname).toBe('/')
+    })
+  })
+
+  it('moves featured carousel to the next item', () => {
+    render(<App />)
+
+    expect(screen.getByRole('heading', { name: 'Gobernanza de resources en un solo lugar' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Siguiente funcionalidad' }))
+    expect(screen.getByRole('heading', { name: 'Handoff inmediato para el equipo técnico' })).toBeInTheDocument()
+  })
+
+  it('toggles color mode from menu', () => {
+    localStorage.setItem('resources-app-theme', 'dark')
+    render(<App />)
+
+    const toggleButton = screen.getByRole('button', { name: 'Cambiar modo de color' })
+    expect(toggleButton).toHaveTextContent('Modo claro')
+    fireEvent.click(toggleButton)
+    expect(toggleButton).toHaveTextContent('Modo oscuro')
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+  })
+
+  it('shows testimonials with web-optimized images', () => {
+    render(<App />)
+
+    const testimonialImages = screen.getAllByRole('img', { name: /Foto de/i })
+    expect(testimonialImages).toHaveLength(3)
+    testimonialImages.forEach((image) => {
+      expect(image.getAttribute('src')).toContain('.webp')
+    })
+  })
+
+  it('redirects unauthenticated user from /projects to /login', async () => {
+    window.history.pushState({}, '', '/projects')
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Iniciar sesión' })).toBeInTheDocument()
+    })
+  })
+
+  it('renders projects for authenticated user and allows logout', async () => {
     localStorage.setItem(
       'resources-auth-session',
       JSON.stringify({
@@ -41,7 +106,7 @@ describe('App login flow', () => {
         },
       }),
     )
-
+    window.history.pushState({}, '', '/projects')
     render(<App />)
 
     expect(screen.getByRole('heading', { name: 'Proyectos' })).toBeInTheDocument()
@@ -72,10 +137,8 @@ describe('App login flow', () => {
       throw new Error(`Unexpected URL: ${String(input)}`)
     })
 
+    window.history.pushState({}, '', '/login')
     render(<App />)
-    fireEvent.change(screen.getByLabelText('ID Token (desarrollo)'), {
-      target: { value: 'test-token:user-2:user2@example.com' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Continuar con Google' }))
 
     await waitFor(() => {
@@ -102,10 +165,8 @@ describe('App login flow', () => {
       throw new Error(`Unexpected URL: ${String(input)}`)
     })
 
+    window.history.pushState({}, '', '/login')
     render(<App />)
-    fireEvent.change(screen.getByLabelText('ID Token (desarrollo)'), {
-      target: { value: 'invalid-token' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Continuar con Google' }))
 
     await waitFor(() => {
