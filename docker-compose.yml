@@ -1,0 +1,58 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: resourcesdb
+      MYSQL_USER: resources_user
+      MYSQL_PASSWORD: resources_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uresources_user", "-presources_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/resources-api/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Server=mysql;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;
+    ports:
+      - "5000:8080"
+
+  app:
+    build:
+      context: .
+      dockerfile: src/resources-app/Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:5000
+    depends_on:
+      - api
+    ports:
+      - "5173:8080"
+
+  api-test:
+    build:
+      context: .
+      dockerfile: src/resources-api-test/Dockerfile
+    profiles:
+      - test
+
+  app-test:
+    build:
+      context: .
+      dockerfile: src/resources-app-test/Dockerfile
+    profiles:
+      - test
+
+volumes:
+  mysql_data:

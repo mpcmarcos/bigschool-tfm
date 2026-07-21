@@ -1,0 +1,9 @@
+{
+  "name": "bigschool-tfm",
+  "private": true,
+  "scripts": {
+    "build": "dotnet build bigschool-tfm.sln && npm --prefix src/resources-app run build",
+    "test": "dotnet test src/resources-api-test/resources-api-test.csproj && npm --prefix src/resources-app-test test",
+    "lint": "npm --prefix src/resources-app run lint"
+  }
+}
