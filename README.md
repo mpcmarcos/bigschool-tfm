@@ -24,17 +24,23 @@ En `docs/user/` está documentado el paso a paso del trabajo realizado con GitHu
 - `docs/user/00-user-creacionproyecto.md`
 - `docs/user/01-user-functionalspec.md`
 
-## Ejemplo mínimo implementado
+## Feature Login implementada
 
 ### Backend
 - `GET /health` -> `{ "status": "ok" }`
 - `POST /echo` con `{ "message": "hola" }` -> `{ "message": "hola", "source": "api" }`
+- `POST /api/v1/auth/social/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/me` (requiere `Authorization: Bearer <accessToken>`)
 
 ### Frontend
-UI simple con:
-- Botón para comprobar `health`
-- Form para enviar `echo`
-- Render de respuestas
+UI con flujo de autenticación:
+- Ruta pública `/login`
+- Ruta protegida `/projects`
+- Redirección en `/` según sesión
+- Login social (Google) contra API
+- Logout con limpieza de sesión en cliente
 
 ## Requisitos
 
@@ -140,8 +146,20 @@ Authentication__Jwt__Issuer="resources-api" \
 Authentication__Jwt__Audience="resources-app" \
 Authentication__Jwt__AccessTokenMinutes="15" \
 Authentication__Jwt__RefreshTokenDays="30" \
+Authentication__Jwt__SigningKey="<jwt-signing-key>" \
+ConnectionStrings__Default="Data Source=resources.db" \
 dotnet run --project src/resources-api/resources-api.csproj
 ```
+
+## Login social en desarrollo
+
+Para pruebas locales rápidas sin depender de Google Cloud durante tests, la API acepta tokens de desarrollo con formato:
+
+`test-token:<providerUserId>:<email>`
+
+Ejemplo:
+
+`test-token:user-dev:dev@example.com`
 
 Configuración recomendada en desarrollo para secretos (User Secrets de .NET):
 ```bash

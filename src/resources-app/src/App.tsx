@@ -1,64 +1,126 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { getHealth, postEcho } from './api'
+import { postSocialLogin, type AuthResponse } from './api'
 import './App.css'
 
+const SESSION_STORAGE_KEY = 'resources-auth-session'
+
+const readStoredSession = (): AuthResponse | null => {
+  const rawSession = localStorage.getItem(SESSION_STORAGE_KEY)
+  if (!rawSession) {
+    return null
+  }
+
+  try {
+    return JSON.parse(rawSession) as AuthResponse
+  } catch {
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+    return null
+  }
+}
+
+const normalizePath = (pathname: string): '/login' | '/projects' | '/' => {
+  if (pathname === '/login' || pathname === '/projects' || pathname === '/') {
+    return pathname
+  }
+
+  return '/'
+}
+
 function App() {
-  const [message, setMessage] = useState('hola')
-  const [healthResult, setHealthResult] = useState<string>('')
-  const [echoResult, setEchoResult] = useState<string>('')
+  const [session, setSession] = useState<AuthResponse | null>(() => readStoredSession())
+  const [currentPath, setCurrentPath] = useState<'/login' | '/projects' | '/'>(
+    normalizePath(window.location.pathname),
+  )
+  const [idToken, setIdToken] = useState('test-token:user-dev:dev@example.com')
   const [error, setError] = useState<string>('')
 
-  const handleHealthClick = async () => {
+  useEffect(() => {
+    const onPopState = () => setCurrentPath(normalizePath(window.location.pathname))
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    if (currentPath === '/') {
+      const targetPath = session ? '/projects' : '/login'
+      window.history.replaceState({}, '', targetPath)
+      setCurrentPath(targetPath)
+      return
+    }
+
+    if (currentPath === '/projects' && !session) {
+      window.history.replaceState({}, '', '/login')
+      setCurrentPath('/login')
+      return
+    }
+
+    if (currentPath === '/login' && session) {
+      window.history.replaceState({}, '', '/projects')
+      setCurrentPath('/projects')
+    }
+  }, [currentPath, session])
+
+  const navigate = (path: '/login' | '/projects') => {
+    window.history.pushState({}, '', path)
+    setCurrentPath(path)
+  }
+
+  const activeView = useMemo(() => {
+    if (currentPath === '/projects' && session) {
+      return 'projects'
+    }
+
+    return 'login'
+  }, [currentPath, session])
+
+  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     setError('')
     try {
-      const response = await getHealth()
-      setHealthResult(response.status)
+      const authSession = await postSocialLogin('google', idToken)
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(authSession))
+      setSession(authSession)
+      navigate('/projects')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
     }
   }
 
-  const handleEchoSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const handleLogout = () => {
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+    setSession(null)
     setError('')
-    try {
-      const response = await postEcho(message)
-      setEchoResult(`${response.message} (${response.source})`)
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
-    }
+    navigate('/login')
   }
 
   return (
     <main className="container">
-      <h1>Resources base communication demo</h1>
+      {activeView === 'login' ? (
+        <section className="card">
+          <h1>Iniciar sesión</h1>
+          <form onSubmit={handleLoginSubmit}>
+            <label htmlFor="id-token-input">ID Token (desarrollo)</label>
+            <input
+              id="id-token-input"
+              value={idToken}
+              onChange={(event) => setIdToken(event.target.value)}
+            />
+            <button type="submit">Continuar con Google</button>
+          </form>
+        </section>
+      ) : (
+        <section className="card">
+          <h1>Proyectos</h1>
+          <p>Listado de proyectos (pendiente de implementación)</p>
+          <p data-testid="user-email">{session?.user.email}</p>
+          <button type="button" onClick={handleLogout}>
+            Cerrar sesión
+          </button>
+        </section>
+      )}
 
-      <section className="card">
-        <h2>Health</h2>
-        <button type="button" onClick={handleHealthClick}>
-          Comprobar health
-        </button>
-        <p data-testid="health-result">
-          {healthResult ? `Status: ${healthResult}` : 'Sin respuesta'}
-        </p>
-      </section>
-
-      <section className="card">
-        <h2>Echo</h2>
-        <form onSubmit={handleEchoSubmit}>
-          <label htmlFor="message-input">Mensaje</label>
-          <input
-            id="message-input"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-          />
-          <button type="submit">Enviar echo</button>
-        </form>
-        <p data-testid="echo-result">{echoResult ? `Echo: ${echoResult}` : 'Sin respuesta'}</p>
-      </section>
-
-      {error && <p className="error">{error}</p>}
+      {error && <p role="alert" className="error">{error}</p>}
     </main>
   )
 }

@@ -1,5 +1,28 @@
 # 01 — Feature Login (Plan de implementación detallado)
 
+## Estado de implementación (ejecutado)
+
+- Backend implementado con endpoints:
+  - `POST /api/v1/auth/social/login`
+  - `POST /api/v1/auth/refresh`
+  - `POST /api/v1/auth/logout`
+  - `GET /api/v1/me`
+- Persistencia implementada con EF Core + SQLite para:
+  - `User` (`lastLoginAt`)
+  - `UserSocialLogin`
+  - `RefreshToken` (hash + expiración + revocación + rotación)
+- Frontend implementado:
+  - `/login` (pública)
+  - `/projects` (protegida)
+  - redirección desde `/`
+- Cobertura de tests implementada para flujo de auth en backend y frontend.
+- Validación ejecutada:
+  - `npm run lint`
+  - `npm run build`
+  - `npm run test`
+
+> Nota: en runtime se usa `Database.Migrate()` y existe migración inicial para auth.
+
 ## 1) Objetivo
 
 Definir e implementar el feature de login social en `resources-api` y `resources-app` con contrato **API REST**, incluyendo autenticación, emisión de tokens, actualización de `lastLoginAt` en `User` y cobertura de pruebas.
