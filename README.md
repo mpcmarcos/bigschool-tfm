@@ -106,6 +106,37 @@ npm run build
 ### Requisitos
 - Docker Desktop (o Docker Engine + Docker Compose v2)
 
+### Levantar solo MySQL (para desarrollo local de la API)
+
+Cuando quieres ejecutar la API directamente con `dotnet run` (sin Docker) pero necesitas la base de datos MySQL:
+
+```bash
+docker compose up mysql -d
+```
+
+Esto levanta únicamente el contenedor MySQL con:
+- **Host:** `localhost`
+- **Puerto:** `3306`
+- **Base de datos:** `resourcesdb`
+- **Usuario:** `resources_user`
+- **Password:** `resources_pass`
+
+La cadena de conexión ya está configurada en los User Secrets del proyecto (ver sección [Login social en desarrollo](#login-social-en-desarrollo)).  
+Para añadir el secret manualmente:
+
+```bash
+cd src/resources-api
+dotnet user-secrets set "ConnectionStrings:Default" \
+  "Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;"
+```
+
+Para parar MySQL:
+```bash
+docker compose down
+# o sin borrar el volumen de datos:
+docker compose stop mysql
+```
+
 ### Levantar MySQL + API + Frontend
 ```bash
 docker compose up --build
@@ -126,28 +157,9 @@ Credenciales definidas en `docker-compose.yml`:
 - Password: `resources_pass`
 - Root password: `root_password`
 
-Ejemplo de cadena de conexión para .NET en local:
-```text
-Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;
-```
+Si ejecutas la API fuera de Docker, levanta MySQL con Docker y usa los User Secrets (ver sección [Levantar solo MySQL](#levantar-solo-mysql-para-desarrollo-local-de-la-api)):
 
-Si ejecutas la API fuera de Docker y quieres conectar contra este MySQL:
 ```bash
-ConnectionStrings__Default="Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;" \
-dotnet run --project src/resources-api/resources-api.csproj
-```
-
-Configuración adicional de autenticación (variables de entorno .NET):
-```bash
-Authentication__Google__ClientId="<google-client-id>" \
-Authentication__Google__ClientSecret="<google-client-secret>" \
-Authentication__Google__CallbackPath="/signin-google" \
-Authentication__Jwt__Issuer="resources-api" \
-Authentication__Jwt__Audience="resources-app" \
-Authentication__Jwt__AccessTokenMinutes="15" \
-Authentication__Jwt__RefreshTokenDays="30" \
-Authentication__Jwt__SigningKey="<jwt-signing-key>" \
-ConnectionStrings__Default="Data Source=resources.db" \
 dotnet run --project src/resources-api/resources-api.csproj
 ```
 
@@ -167,6 +179,7 @@ cd src/resources-api
 dotnet user-secrets init
 dotnet user-secrets set "Authentication:Google:ClientId" "<google-client-id>"
 dotnet user-secrets set "Authentication:Google:ClientSecret" "<google-client-secret>"
+dotnet user-secrets set "ConnectionStrings:Default" "Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;"
 ```
 
 ### Ejecutar tests en contenedores

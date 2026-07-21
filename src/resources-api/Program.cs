@@ -1,6 +1,5 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using resources_api.Data;
@@ -23,7 +22,9 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<IEchoService, EchoService>();
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=resources.db");
+    var connectionString = builder.Configuration.GetConnectionString("Default")
+        ?? throw new InvalidOperationException("Connection string 'Default' not found.");
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
 });
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<ISocialTokenValidator, GoogleSocialTokenValidator>();
@@ -50,19 +51,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    lock (MigrationLock.SyncRoot)
-    {
-        try
-        {
-            dbContext.Database.Migrate();
-        }
-        catch (SqliteException exception)
-            when (exception.SqliteErrorCode == 1 &&
-                exception.Message.Contains("__EFMigrationsHistory", StringComparison.Ordinal))
-        {
-            dbContext.Database.Migrate();
-        }
-    }
+    dbContext.Database.Migrate();
 }
 
 app.UseCors("LocalDev");
@@ -74,9 +63,4 @@ app.Run();
 
 public partial class Program
 {
-}
-
-internal static class MigrationLock
-{
-    internal static readonly object SyncRoot = new();
 }
