@@ -14,7 +14,15 @@ src/
   resources-api/
   resources-app-test/
   resources-api-test/
+docs/
+  user/
 ```
+
+## Historial de trabajo con GitHub Copilot
+
+En `docs/user/` está documentado el paso a paso del trabajo realizado con GitHub Copilot mediante el historial de prompts de usuario:
+- `docs/user/00-user-creacionproyecto.md`
+- `docs/user/01-user-functionalspec.md`
 
 ## Ejemplo mínimo implementado
 
