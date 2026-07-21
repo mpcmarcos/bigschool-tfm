@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import { GoogleLogin } from '@react-oauth/google'
+import type { CredentialResponse } from '@react-oauth/google'
 import { postSocialLogin, type AuthResponse } from './api'
 import './App.css'
 
@@ -32,7 +33,6 @@ function App() {
   const [currentPath, setCurrentPath] = useState<'/login' | '/projects' | '/'>(
     normalizePath(window.location.pathname),
   )
-  const [idToken, setIdToken] = useState('test-token:user-dev:dev@example.com')
   const [error, setError] = useState<string>('')
 
   useEffect(() => {
@@ -74,17 +74,24 @@ function App() {
     return 'login'
   }, [currentPath, session])
 
-  const handleLoginSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
     setError('')
+    if (!credentialResponse.credential) {
+      setError('No se recibió credencial de Google')
+      return
+    }
     try {
-      const authSession = await postSocialLogin('google', idToken)
+      const authSession = await postSocialLogin('google', credentialResponse.credential)
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(authSession))
       setSession(authSession)
       navigate('/projects')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
     }
+  }
+
+  const handleGoogleError = () => {
+    setError('Error al iniciar sesión con Google')
   }
 
   const handleLogout = () => {
@@ -99,15 +106,11 @@ function App() {
       {activeView === 'login' ? (
         <section className="card">
           <h1>Iniciar sesión</h1>
-          <form onSubmit={handleLoginSubmit}>
-            <label htmlFor="id-token-input">ID Token (desarrollo)</label>
-            <input
-              id="id-token-input"
-              value={idToken}
-              onChange={(event) => setIdToken(event.target.value)}
-            />
-            <button type="submit">Continuar con Google</button>
-          </form>
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={handleGoogleError}
+            useOneTap
+          />
         </section>
       ) : (
         <section className="card">
