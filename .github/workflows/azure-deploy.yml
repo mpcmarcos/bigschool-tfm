@@ -2,14 +2,92 @@ name: Azure Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/azure-deploy.yml"
+      - "src/resources-api/**"
+      - "src/resources-app/**"
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ vars.ACR_NAME }}
+      AZURE_API_CONTAINER_APP: ${{ vars.AZURE_API_CONTAINER_APP }}
+      AZURE_WEB_CONTAINER_APP: ${{ vars.AZURE_WEB_CONTAINER_APP }}
+      FRONTEND_API_BASE_URL: ${{ vars.FRONTEND_API_BASE_URL }}
+      JWT_ISSUER: ${{ vars.JWT_ISSUER }}
+      JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE }}
+      IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deployment target pending decision
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare Azure CLI extensions
         run: |
-          echo "Pendiente de selección de servicios Azure para frontend, backend y base de datos."
+          az config set extension.use_dynamic_install=yes_without_prompt
+          az extension add --name containerapp --upgrade
+
+      - name: Resolve ACR login server
+        run: |
+          echo "ACR_LOGIN_SERVER=$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)" >> "$GITHUB_ENV"
+
+      - name: Build and push API image
+        run: |
+          az acr login --name "$ACR_NAME"
+          docker build -f src/resources-api/Dockerfile -t "$ACR_LOGIN_SERVER/resources-api:$IMAGE_TAG" .
+          docker push "$ACR_LOGIN_SERVER/resources-api:$IMAGE_TAG"
+
+      - name: Build and push frontend image
+        run: |
+          docker build \
+            -f src/resources-app/Dockerfile \
+            --build-arg VITE_API_BASE_URL="$FRONTEND_API_BASE_URL" \
+            -t "$ACR_LOGIN_SERVER/resources-app:$IMAGE_TAG" .
+          docker push "$ACR_LOGIN_SERVER/resources-app:$IMAGE_TAG"
+
+      - name: Update API Container App
+        env:
+          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          az containerapp secret set \
+            --name "$AZURE_API_CONTAINER_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --secrets \
+              db-connection-string="$DB_CONNECTION_STRING" \
+              jwt-signing-key="$JWT_SIGNING_KEY" \
+              google-client-id="$GOOGLE_CLIENT_ID"
+
+          az containerapp update \
+            --name "$AZURE_API_CONTAINER_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image "$ACR_LOGIN_SERVER/resources-api:$IMAGE_TAG" \
+            --set-env-vars \
+              ConnectionStrings__Default=secretref:db-connection-string \
+              Authentication__Jwt__SigningKey=secretref:jwt-signing-key \
+              Authentication__Jwt__Issuer="$JWT_ISSUER" \
+              Authentication__Jwt__Audience="$JWT_AUDIENCE" \
+              Authentication__Google__ClientId=secretref:google-client-id
+
+      - name: Update frontend Container App
+        run: |
+          az containerapp update \
+            --name "$AZURE_WEB_CONTAINER_APP" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image "$ACR_LOGIN_SERVER/resources-app:$IMAGE_TAG"
