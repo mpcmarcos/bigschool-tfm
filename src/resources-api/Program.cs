@@ -24,9 +24,17 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     var connectionString = builder.Configuration.GetConnectionString("Default")
         ?? throw new InvalidOperationException("Connection string 'Default' not found.");
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    if (connectionString.Contains("Data Source=", StringComparison.OrdinalIgnoreCase))
+    {
+        options.UseSqlite(connectionString);
+    }
+    else
+    {
+        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    }
 });
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<ProjectService>();
 builder.Services.AddScoped<ISocialTokenValidator, GoogleSocialTokenValidator>();
 builder.Services.AddScoped<TokenService>();
 builder.Services
@@ -51,7 +59,14 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    dbContext.Database.Migrate();
+    if (app.Environment.IsEnvironment("Testing"))
+    {
+        dbContext.Database.EnsureCreated();
+    }
+    else
+    {
+        dbContext.Database.Migrate();
+    }
 }
 
 app.UseCors("LocalDev");

@@ -415,3 +415,20 @@ Además de las propiedades orientativas, se añaden campos operativos mínimos p
 - Se puede exportar en JSON y XML desde proyecto, página y resource individual.
 - Se soporta creación de página mediante imagen con flujo OCR + confirmación.
 - La home pública muestra logo `resourceApp`, acceso a login, carrusel de funcionalidades, 10 clientes ficticios y testimonios con fotos optimizadas para web.
+
+---
+
+## 10) Definición de URLs del sistema
+
+Ruta base jerárquica definida para navegación funcional:
+
+`/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}/{idresourcepage}`
+
+Desglose por niveles:
+
+1. `/projects` -> listado de proyectos.
+2. `/projects/{idproject}` -> contexto de proyecto.
+3. `/projects/{idproject}/{idpagina}` -> contexto de página.
+4. `/projects/{idproject}/{idpagina}/{idpaginaversion}` -> contexto de versión de página.
+5. `/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}` -> contexto de recurso.
+6. `/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}/{idresourcepage}` -> detalle final del recurso dentro de la página.

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5174'
 
 export type HealthResponse = {
   status: string
@@ -21,6 +21,28 @@ export type AuthResponse = {
   tokenType: string
   expiresIn: number
   user: UserProfileResponse
+}
+
+export type ProjectResponse = {
+  id: string
+  name: string
+  description: string | null
+  ownerUserId: string
+  ownerEmail: string
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
+export type ProjectMemberResponse = {
+  id: string
+  projectId: string
+  userId: string
+  email: string
+  role: string
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
 }
 
 type ProblemDetails = {
@@ -85,4 +107,80 @@ export const postLogout = async (refreshToken: string): Promise<void> => {
   if (!response.ok) {
     await parseResponse<unknown>(response)
   }
+}
+
+const buildAuthHeaders = (accessToken: string): Record<string, string> => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${accessToken}`,
+})
+
+export const getProjects = async (accessToken: string): Promise<ProjectResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<ProjectResponse[]>(response)
+}
+
+export const postProject = async (
+  accessToken: string,
+  payload: { name: string; description: string },
+): Promise<ProjectResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<ProjectResponse>(response)
+}
+
+export const putProject = async (
+  accessToken: string,
+  projectId: string,
+  payload: { name: string; description: string },
+): Promise<ProjectResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
+    method: 'PUT',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<ProjectResponse>(response)
+}
+
+export const deleteProject = async (accessToken: string, projectId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
+    method: 'DELETE',
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response)
+  }
+}
+
+export const getProjectMembers = async (
+  accessToken: string,
+  projectId: string,
+): Promise<ProjectMemberResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<ProjectMemberResponse[]>(response)
+}
+
+export const postProjectMember = async (
+  accessToken: string,
+  projectId: string,
+  payload: { email: string; role: string },
+): Promise<ProjectMemberResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<ProjectMemberResponse>(response)
 }

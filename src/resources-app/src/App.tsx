@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { GoogleLogin } from '@react-oauth/google'
 import type { CredentialResponse } from '@react-oauth/google'
-import { postSocialLogin, type AuthResponse } from './api'
+import {
+  deleteProject,
+  getProjectMembers,
+  getProjects,
+  postLogout,
+  postProject,
+  postProjectMember,
+  postSocialLogin,
+  putProject,
+  type AuthResponse,
+  type ProjectMemberResponse,
+  type ProjectResponse,
+} from './api'
 import resourceAppLogo from './assets/resourceapp-logo.svg'
 import claraMartinPhoto from './assets/home/testimonials/clara-martin.webp'
 import diegoHerreraPhoto from './assets/home/testimonials/diego-herrera.webp'
@@ -13,6 +25,10 @@ const THEME_STORAGE_KEY = 'resources-app-theme'
 type ThemeMode = 'dark' | 'light'
 type WindowWithGoogle = Window & typeof globalThis & { google?: unknown }
 type HomeSectionId = 'features' | 'clients' | 'testimonials'
+type RouteInfo = {
+  view: 'home' | 'login' | 'projects'
+  projectId: string | null
+}
 
 type ClientLogoPalette = {
   from: string
@@ -37,6 +53,7 @@ const buildClientLogoDataUri = (name: string, initials: string, palette: ClientL
 
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
+
 const FEATURE_SLIDES = [
   {
     id: 'feature-resource-governance',
@@ -175,23 +192,52 @@ const readStoredTheme = (): ThemeMode => {
   return 'dark'
 }
 
-const normalizePath = (pathname: string): '/login' | '/projects' | '/' => {
-  if (pathname === '/login' || pathname === '/projects' || pathname === '/') {
+const normalizePath = (pathname: string): string => {
+  if (pathname === '/' || pathname === '/login' || pathname.startsWith('/projects')) {
     return pathname
   }
 
   return '/'
 }
 
+const resolveRoute = (path: string): RouteInfo => {
+  if (path === '/login') {
+    return { view: 'login', projectId: null }
+  }
+
+  if (path === '/') {
+    return { view: 'home', projectId: null }
+  }
+
+  const pathSegments = path.split('/').filter(Boolean)
+  return {
+    view: 'projects',
+    projectId: pathSegments.length > 1 ? pathSegments[1] : null,
+  }
+}
+
 function App() {
   const [session, setSession] = useState<AuthResponse | null>(() => readStoredSession())
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme())
   const [pendingSection, setPendingSection] = useState<HomeSectionId | null>(null)
-  const [currentPath, setCurrentPath] = useState<'/login' | '/projects' | '/'>(
-    normalizePath(window.location.pathname),
-  )
+  const [currentPath, setCurrentPath] = useState(normalizePath(window.location.pathname))
   const [activeFeatureIndex, setActiveFeatureIndex] = useState(0)
-  const [error, setError] = useState<string>('')
+  const [error, setError] = useState('')
+  const [projects, setProjects] = useState<ProjectResponse[]>([])
+  const [projectsLoading, setProjectsLoading] = useState(false)
+  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectDescription, setNewProjectDescription] = useState('')
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
+  const [editingProjectName, setEditingProjectName] = useState('')
+  const [editingProjectDescription, setEditingProjectDescription] = useState('')
+  const [sharingProjectId, setSharingProjectId] = useState<string | null>(null)
+  const [projectMembers, setProjectMembers] = useState<ProjectMemberResponse[]>([])
+  const [shareEmail, setShareEmail] = useState('')
+  const [shareRole, setShareRole] = useState('viewer')
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [deleteConfirmationProjectId, setDeleteConfirmationProjectId] = useState<string | null>(null)
+  const route = useMemo(() => resolveRoute(currentPath), [currentPath])
 
   useEffect(() => {
     const onPopState = () => setCurrentPath(normalizePath(window.location.pathname))
@@ -205,33 +251,43 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    if (currentPath === '/projects' && !session) {
+    if (route.view === 'projects' && !session) {
       window.history.replaceState({}, '', '/login')
       setCurrentPath('/login')
       return
     }
 
-    if (currentPath === '/login' && session) {
+    if (route.view === 'login' && session) {
       window.history.replaceState({}, '', '/projects')
       setCurrentPath('/projects')
     }
-  }, [currentPath, session])
+  }, [route.view, session])
 
-  const navigate = (path: '/login' | '/projects') => {
+  useEffect(() => {
+    if (route.view !== 'projects' || !session) {
+      return
+    }
+
+    const loadProjects = async () => {
+      setProjectsLoading(true)
+      setError('')
+      try {
+        const fetchedProjects = await getProjects(session.accessToken)
+        setProjects(fetchedProjects.filter((project) => !project.isDeleted))
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+      } finally {
+        setProjectsLoading(false)
+      }
+    }
+
+    void loadProjects()
+  }, [route.view, session])
+
+  const navigate = (path: string) => {
     window.history.pushState({}, '', path)
-    setCurrentPath(path)
+    setCurrentPath(normalizePath(path))
   }
-
-  const activeView = useMemo(() => {
-    if (currentPath === '/projects' && session) {
-      return 'projects'
-    }
-    if (currentPath === '/') {
-      return 'home'
-    }
-
-    return 'login'
-  }, [currentPath, session])
 
   const activeFeature = FEATURE_SLIDES[activeFeatureIndex]
 
@@ -249,6 +305,7 @@ function App() {
       setError('No se recibió credencial de Google')
       return
     }
+
     try {
       const authSession = await postSocialLogin('google', credentialResponse.credential)
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(authSession))
@@ -267,11 +324,21 @@ function App() {
     void handleGoogleSuccess({ credential: 'test-token:user-dev:dev@example.com' })
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem(SESSION_STORAGE_KEY)
-    setSession(null)
+  const handleLogout = async () => {
+    if (!session) {
+      return
+    }
+
     setError('')
-    navigate('/login')
+    try {
+      await postLogout(session.refreshToken)
+      localStorage.removeItem(SESSION_STORAGE_KEY)
+      setSession(null)
+      setProjects([])
+      navigate('/login')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
   }
 
   const toggleTheme = () => {
@@ -303,7 +370,146 @@ function App() {
     setPendingSection(null)
   }, [currentPath, pendingSection])
 
+  const handleCreateProject = async () => {
+    if (!session) {
+      return
+    }
+
+    if (!newProjectName.trim()) {
+      setError('El nombre del proyecto es obligatorio.')
+      return
+    }
+
+    try {
+      const createdProject = await postProject(session.accessToken, {
+        name: newProjectName,
+        description: newProjectDescription,
+      })
+      setProjects((currentProjects) => [createdProject, ...currentProjects])
+      setNewProjectName('')
+      setNewProjectDescription('')
+      setIsCreateProjectModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const openEditProject = (project: ProjectResponse) => {
+    setEditingProjectId(project.id)
+    setEditingProjectName(project.name)
+    setEditingProjectDescription(project.description ?? '')
+  }
+
+  const cancelEditProject = () => {
+    setEditingProjectId(null)
+    setEditingProjectName('')
+    setEditingProjectDescription('')
+  }
+
+  const openCreateProjectModal = () => {
+    setError('')
+    setIsCreateProjectModalOpen(true)
+  }
+
+  const closeCreateProjectModal = () => {
+    setIsCreateProjectModalOpen(false)
+    setNewProjectName('')
+    setNewProjectDescription('')
+  }
+
+  const handleSaveProject = async (projectId: string) => {
+    if (!session) {
+      return
+    }
+
+    try {
+      const updatedProject = await putProject(session.accessToken, projectId, {
+        name: editingProjectName,
+        description: editingProjectDescription,
+      })
+      setProjects((currentProjects) => currentProjects.map((project) => (project.id === projectId ? updatedProject : project)))
+      cancelEditProject()
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleDeleteProject = async (projectId: string) => {
+    if (!session) {
+      return
+    }
+
+    try {
+      await deleteProject(session.accessToken, projectId)
+      setProjects((currentProjects) => currentProjects.filter((project) => project.id !== projectId))
+      if (sharingProjectId === projectId) {
+        setSharingProjectId(null)
+        setProjectMembers([])
+      }
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const closeShareModal = () => {
+    setSharingProjectId(null)
+    setProjectMembers([])
+    setShareEmail('')
+    setShareRole('viewer')
+  }
+
+  const selectedProjectForDelete = deleteConfirmationProjectId
+    ? projects.find((project) => project.id === deleteConfirmationProjectId) ?? null
+    : null
+
+  const openSharePanel = async (projectId: string) => {
+    if (!session) {
+      return
+    }
+
+    setSharingProjectId(projectId)
+    setMembersLoading(true)
+    setError('')
+    try {
+      const members = await getProjectMembers(session.accessToken, projectId)
+      setProjectMembers(members.filter((member) => !member.isDeleted))
+    } catch (requestError) {
+      setProjectMembers([])
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    } finally {
+      setMembersLoading(false)
+    }
+  }
+
+  const handleShareProject = async (projectId: string) => {
+    if (!session) {
+      return
+    }
+
+    if (!shareEmail.trim()) {
+      setError('Debes indicar un email para compartir el proyecto.')
+      return
+    }
+
+    try {
+      const member = await postProjectMember(session.accessToken, projectId, { email: shareEmail, role: shareRole })
+      setProjectMembers((currentMembers) => {
+        const remainingMembers = currentMembers.filter((currentMember) => currentMember.userId !== member.userId)
+        return [...remainingMembers, member]
+      })
+      setShareEmail('')
+      setShareRole('viewer')
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
   const hasGoogleWidget = typeof (window as WindowWithGoogle).google !== 'undefined'
+  const isAuthenticated = Boolean(session)
 
   return (
     <main className="app-shell">
@@ -313,64 +519,86 @@ function App() {
           href="/"
           onClick={(event) => {
             event.preventDefault()
-            window.history.pushState({}, '', '/')
-            setCurrentPath('/')
+            navigate('/')
           }}
         >
           <img src={resourceAppLogo} alt="ResouceApp logo" width={210} height={45} />
         </a>
         <nav className="top-nav-links" aria-label="Navegación principal">
-          <a href="/" onClick={(event) => {
-            event.preventDefault()
-            window.history.pushState({}, '', '/')
-            setCurrentPath('/')
-          }}
-          >
-            Home
-          </a>
-          <a
-            href="/#features"
-            onClick={(event) => {
-              event.preventDefault()
-              navigateToHomeSection('features')
-            }}
-          >
-            Features
-          </a>
-          <a
-            href="/#clients"
-            onClick={(event) => {
-              event.preventDefault()
-              navigateToHomeSection('clients')
-            }}
-          >
-            Clients
-          </a>
-          <a
-            href="/#testimonials"
-            onClick={(event) => {
-              event.preventDefault()
-              navigateToHomeSection('testimonials')
-            }}
-          >
-            Reviews
-          </a>
-          <a
-            href="/login"
-            onClick={(event) => {
-              event.preventDefault()
-              navigate('/login')
-            }}
-          >
-            Login
-          </a>
+          {isAuthenticated ? (
+            <>
+              <a
+                href="/projects"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigate('/projects')
+                }}
+              >
+                Proyectos
+              </a>
+              <span className="top-user-email" data-testid="top-user-email">
+                {session?.user.email}
+              </span>
+              <button type="button" onClick={() => void handleLogout()}>
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <a
+                href="/"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigate('/')
+                }}
+              >
+                Home
+              </a>
+              <a
+                href="/#features"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigateToHomeSection('features')
+                }}
+              >
+                Features
+              </a>
+              <a
+                href="/#clients"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigateToHomeSection('clients')
+                }}
+              >
+                Clients
+              </a>
+              <a
+                href="/#testimonials"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigateToHomeSection('testimonials')
+                }}
+              >
+                Reviews
+              </a>
+              <a
+                href="/login"
+                onClick={(event) => {
+                  event.preventDefault()
+                  navigate('/login')
+                }}
+              >
+                Login
+              </a>
+            </>
+          )}
           <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Cambiar modo de color">
             {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
           </button>
         </nav>
       </header>
 
-      {activeView === 'home' ? (
+      {route.view === 'home' ? (
         <section className="home-layout">
           <section className="neon-grid" id="features">
             <article className="neon-card tall-card">
@@ -430,13 +658,7 @@ function App() {
             <ul className="testimonial-grid">
               {TESTIMONIALS.map((testimonial) => (
                 <li key={testimonial.id} className="testimonial-card">
-                  <img
-                    src={testimonial.photoUrl}
-                    alt={`Foto de ${testimonial.author}`}
-                    width={80}
-                    height={80}
-                    loading="lazy"
-                  />
+                  <img src={testimonial.photoUrl} alt={`Foto de ${testimonial.author}`} width={80} height={80} loading="lazy" />
                   <blockquote>{testimonial.quote}</blockquote>
                   <p className="testimonial-author">{testimonial.author}</p>
                   <p className="testimonial-role">{testimonial.role}</p>
@@ -445,29 +667,226 @@ function App() {
             </ul>
           </section>
         </section>
-      ) : activeView === 'login' ? (
+      ) : route.view === 'login' ? (
         <section className="panel-card neon-border">
           <h1>Iniciar sesión</h1>
           {hasGoogleWidget ? (
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={handleGoogleError}
-              useOneTap
-            />
+            <GoogleLogin onSuccess={handleGoogleSuccess} onError={handleGoogleError} useOneTap />
           ) : (
             <button type="button" onClick={handleLocalGoogleLogin}>
               Continuar con Google
             </button>
           )}
         </section>
-      ) : (
+      ) : route.projectId ? (
         <section className="panel-card neon-border">
-          <h1>Proyectos</h1>
-          <p>Listado de proyectos (pendiente de implementación)</p>
-          <p data-testid="user-email">{session?.user.email}</p>
-          <button type="button" onClick={handleLogout}>
-            Cerrar sesión
+          <h1>Páginas del proyecto</h1>
+          <p>Ruta actual: {currentPath}</p>
+          <p>Listado de páginas (pendiente de implementación)</p>
+          <button type="button" onClick={() => navigate('/projects')}>
+            Volver a proyectos
           </button>
+        </section>
+      ) : (
+        <section className="panel-card neon-border projects-panel">
+          <div className="projects-header">
+            <h1>Proyectos</h1>
+            <button type="button" onClick={openCreateProjectModal}>
+              Crear proyecto
+            </button>
+          </div>
+
+          {projectsLoading ? <p>Cargando proyectos...</p> : null}
+
+          <ul className="projects-list">
+            {projects.map((project) => (
+              <li key={project.id} className="project-card">
+                <h2>{project.name}</h2>
+                <p>{project.description ?? 'Sin descripción'}</p>
+                <dl className="project-properties">
+                  <div>
+                    <dt>id</dt>
+                    <dd>{project.id}</dd>
+                  </div>
+                  <div>
+                    <dt>ownerUserId</dt>
+                    <dd>{project.ownerUserId}</dd>
+                  </div>
+                  <div>
+                    <dt>ownerEmail</dt>
+                    <dd>{project.ownerEmail}</dd>
+                  </div>
+                  <div>
+                    <dt>createdAt</dt>
+                    <dd>{project.createdAt}</dd>
+                  </div>
+                  <div>
+                    <dt>updatedAt</dt>
+                    <dd>{project.updatedAt}</dd>
+                  </div>
+                  <div>
+                    <dt>isDeleted</dt>
+                    <dd>{String(project.isDeleted)}</dd>
+                  </div>
+                </dl>
+
+                <div className="project-actions">
+                  <button type="button" onClick={() => navigate(`/projects/${project.id}`)}>
+                    Ver páginas
+                  </button>
+                  <button type="button" onClick={() => void openSharePanel(project.id)}>
+                    Compartir
+                  </button>
+                  <button type="button" onClick={() => openEditProject(project)}>
+                    Editar
+                  </button>
+                  <button type="button" onClick={() => setDeleteConfirmationProjectId(project.id)}>
+                    Borrar
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {isCreateProjectModalOpen ? (
+            <section className="modal-backdrop" role="dialog" aria-label="Crear proyecto" aria-modal="true">
+              <article className="modal-card">
+                <h3>Crear proyecto</h3>
+                <div className="project-subpanel">
+                  <label htmlFor="new-project-name">Nombre</label>
+                  <input
+                    id="new-project-name"
+                    aria-label="Nombre del proyecto nuevo"
+                    value={newProjectName}
+                    onChange={(event) => setNewProjectName(event.target.value)}
+                  />
+                  <label htmlFor="new-project-description">Descripción</label>
+                  <input
+                    id="new-project-description"
+                    aria-label="Descripción del proyecto nuevo"
+                    value={newProjectDescription}
+                    onChange={(event) => setNewProjectDescription(event.target.value)}
+                  />
+                </div>
+                <div className="project-subpanel-actions">
+                  <button type="button" onClick={() => void handleCreateProject()}>
+                    Guardar proyecto
+                  </button>
+                  <button type="button" onClick={closeCreateProjectModal}>
+                    Cancelar
+                  </button>
+                </div>
+              </article>
+            </section>
+          ) : null}
+
+          {editingProjectId ? (
+            <section className="modal-backdrop" role="dialog" aria-label="Editar proyecto" aria-modal="true">
+              <article className="modal-card">
+                <h3>Editar proyecto</h3>
+                <div className="project-subpanel">
+                  <label htmlFor="edit-project-name">Nombre</label>
+                  <input
+                    id="edit-project-name"
+                    aria-label="Nombre del proyecto"
+                    value={editingProjectName}
+                    onChange={(event) => setEditingProjectName(event.target.value)}
+                  />
+                  <label htmlFor="edit-project-description">Descripción</label>
+                  <input
+                    id="edit-project-description"
+                    aria-label="Descripción del proyecto"
+                    value={editingProjectDescription}
+                    onChange={(event) => setEditingProjectDescription(event.target.value)}
+                  />
+                </div>
+                <div className="project-subpanel-actions">
+                  <button type="button" onClick={() => void handleSaveProject(editingProjectId)}>
+                    Guardar cambios
+                  </button>
+                  <button type="button" onClick={cancelEditProject}>
+                    Cancelar
+                  </button>
+                </div>
+              </article>
+            </section>
+          ) : null}
+
+          {sharingProjectId ? (
+            <section className="modal-backdrop" role="dialog" aria-label="Compartir proyecto" aria-modal="true">
+              <article className="modal-card">
+                <h3>Compartir proyecto</h3>
+                <section className="project-subpanel">
+                  <h4>Miembros con acceso</h4>
+                  {membersLoading ? <p>Cargando miembros...</p> : null}
+                  <ul className="members-list">
+                    {projectMembers.map((member) => (
+                      <li key={member.id}>
+                        {member.email} · {member.role}
+                      </li>
+                    ))}
+                  </ul>
+                  <label htmlFor="share-project-email">Nuevo email</label>
+                  <input
+                    id="share-project-email"
+                    aria-label="Nuevo email para compartir"
+                    value={shareEmail}
+                    onChange={(event) => setShareEmail(event.target.value)}
+                  />
+                  <label htmlFor="share-project-role">Rol</label>
+                  <select
+                    id="share-project-role"
+                    aria-label="Rol de acceso"
+                    value={shareRole}
+                    onChange={(event) => setShareRole(event.target.value)}
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="editor">editor</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </section>
+                <div className="project-subpanel-actions">
+                  <button type="button" onClick={() => void handleShareProject(sharingProjectId)}>
+                    Añadir acceso
+                  </button>
+                  <button type="button" onClick={closeShareModal}>
+                    Cerrar
+                  </button>
+                </div>
+              </article>
+            </section>
+          ) : null}
+
+          {deleteConfirmationProjectId ? (
+            <section className="modal-backdrop" role="dialog" aria-label="Confirmar borrado" aria-modal="true">
+              <article className="modal-card">
+                <h3>Confirmar borrado</h3>
+                <p>
+                  ¿Seguro que quieres borrar
+                  {' '}
+                  <strong>{selectedProjectForDelete?.name ?? 'este proyecto'}</strong>
+                  ?
+                </p>
+                <div className="project-subpanel-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const projectIdToDelete = deleteConfirmationProjectId
+                      setDeleteConfirmationProjectId(null)
+                      if (projectIdToDelete) {
+                        void handleDeleteProject(projectIdToDelete)
+                      }
+                    }}
+                  >
+                    Confirmar borrado
+                  </button>
+                  <button type="button" onClick={() => setDeleteConfirmationProjectId(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              </article>
+            </section>
+          ) : null}
         </section>
       )}
 

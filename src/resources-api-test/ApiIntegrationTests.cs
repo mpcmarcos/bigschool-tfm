@@ -154,6 +154,128 @@ namespace resources_api_test
             Assert.Equal("Invalid authentication provider.", body.GetProperty("detail").GetString());
         }
 
+        [Fact]
+        public async Task Projects_Flow_CreateShareEditDelete_WorksAsExpected()
+        {
+            var client = _factory.CreateClient();
+            var ownerSession = await LoginAsync(client, "owner-user", "owner@example.com");
+            var ownerToken = ownerSession.GetProperty("accessToken").GetString()!;
+
+            var createResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Post,
+                "/api/v1/projects",
+                new
+                {
+                    name = "Proyecto Alpha",
+                    description = "Proyecto inicial"
+                });
+            var createdProject = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var projectId = createdProject.GetProperty("id").GetString();
+
+            Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+            Assert.Equal("Proyecto Alpha", createdProject.GetProperty("name").GetString());
+            Assert.Equal("Proyecto inicial", createdProject.GetProperty("description").GetString());
+            Assert.False(createdProject.GetProperty("isDeleted").GetBoolean());
+
+            var shareResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/members",
+                new
+                {
+                    email = "collab@example.com",
+                    role = "editor"
+                });
+            var sharedMember = await shareResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.Created, shareResponse.StatusCode);
+            Assert.Equal("collab@example.com", sharedMember.GetProperty("email").GetString());
+            Assert.Equal("editor", sharedMember.GetProperty("role").GetString());
+
+            var updateResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Put,
+                $"/api/v1/projects/{projectId}",
+                new
+                {
+                    name = "Proyecto Alpha v2",
+                    description = "Proyecto actualizado"
+                });
+            var updatedProject = await updateResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+            Assert.Equal("Proyecto Alpha v2", updatedProject.GetProperty("name").GetString());
+            Assert.Equal("Proyecto actualizado", updatedProject.GetProperty("description").GetString());
+
+            var ownerProjectsResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Get, "/api/v1/projects");
+            var ownerProjects = await ownerProjectsResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.OK, ownerProjectsResponse.StatusCode);
+            Assert.Contains(ownerProjects.EnumerateArray(), project => project.GetProperty("id").GetString() == projectId);
+
+            var collabSession = await LoginAsync(client, "collab-user", "collab@example.com");
+            var collabToken = collabSession.GetProperty("accessToken").GetString()!;
+            var collabProjectsResponse = await SendAuthorizedAsync(client, collabToken, HttpMethod.Get, "/api/v1/projects");
+            var collabProjects = await collabProjectsResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.OK, collabProjectsResponse.StatusCode);
+            Assert.Contains(collabProjects.EnumerateArray(), project => project.GetProperty("id").GetString() == projectId);
+
+            var membersResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Get, $"/api/v1/projects/{projectId}/members");
+            var members = await membersResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.OK, membersResponse.StatusCode);
+            Assert.Equal(2, members.GetArrayLength());
+
+            var deleteResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Delete, $"/api/v1/projects/{projectId}");
+            Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+            var projectsAfterDeleteResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Get, "/api/v1/projects");
+            var projectsAfterDelete = await projectsAfterDeleteResponse.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.DoesNotContain(projectsAfterDelete.EnumerateArray(), project => project.GetProperty("id").GetString() == projectId);
+        }
+
+        [Fact]
+        public async Task Projects_Create_WithoutAuth_ReturnsUnauthorized()
+        {
+            var client = _factory.CreateClient();
+            var response = await client.PostAsJsonAsync("/api/v1/projects", new
+            {
+                name = "Proyecto sin auth",
+                description = "No debe crearse"
+            });
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        private static async Task<JsonElement> LoginAsync(HttpClient client, string providerUserId, string email)
+        {
+            var response = await client.PostAsJsonAsync("/api/v1/auth/social/login", new
+            {
+                provider = "google",
+                idToken = $"test-token:{providerUserId}:{email}"
+            });
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<JsonElement>();
+        }
+
+        private static async Task<HttpResponseMessage> SendAuthorizedAsync(
+            HttpClient client,
+            string accessToken,
+            HttpMethod method,
+            string path,
+            object? payload = null)
+        {
+            var request = new HttpRequestMessage(method, path);
+            request.Headers.Authorization = new("Bearer", accessToken);
+            if (payload != null)
+            {
+                request.Content = JsonContent.Create(payload);
+            }
+
+            return await client.SendAsync(request);
+        }
+
         public void Dispose()
         {
             _factory.Dispose();
