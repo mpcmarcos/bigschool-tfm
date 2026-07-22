@@ -1,0 +1,144 @@
+# Deploy en Azure (resources-app + resources-api)
+
+Este documento describe el despliegue de la nueva aplicación en Azure usando:
+
+- **Frontend** (`src/resources-app`) como contenedor en **Azure Container Apps**.
+- **API** (`src/resources-api`) como contenedor en **Azure Container Apps**.
+- **Base de datos** en **Azure Database for MySQL - Flexible Server**.
+- **Registro de imágenes** en **Azure Container Registry (ACR)**.
+
+## 1) Arquitectura objetivo
+
+- `resources-app` (Vite + React) se construye como imagen Nginx y publica en ACR.
+- `resources-api` (.NET 8) se construye como imagen y publica en ACR.
+- GitHub Actions actualiza ambas Container Apps con la imagen del commit (`github.sha`).
+- La API recibe secretos por `secretref` (cadena de conexión, JWT, Google Client ID).
+
+## 2) Prerrequisitos
+
+1. Suscripción de Azure activa.
+2. Resource Group creado.
+3. ACR creado.
+4. Container Apps Environment creado.
+5. Dos Container Apps creadas (frontend y API), conectadas a ACR.
+6. MySQL Flexible Server creado y accesible desde la API.
+7. Federated Credential de GitHub configurada en Microsoft Entra ID para OIDC.
+
+## 3) Variables y secretos en GitHub
+
+### Variables de repositorio (`Settings > Secrets and variables > Actions > Variables`)
+
+- `AZURE_RESOURCE_GROUP`
+- `ACR_NAME`
+- `AZURE_API_CONTAINER_APP`
+- `AZURE_WEB_CONTAINER_APP`
+- `FRONTEND_API_BASE_URL` (URL pública de la API, p. ej. `https://api-miapp.region.azurecontainerapps.io`)
+- `JWT_ISSUER`
+- `JWT_AUDIENCE`
+
+### Secretos de repositorio (`Settings > Secrets and variables > Actions > Secrets`)
+
+- `AZURE_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `DB_CONNECTION_STRING`
+- `JWT_SIGNING_KEY`
+- `GOOGLE_CLIENT_ID`
+
+> Recomendado: gestionar estos valores por entorno (`dev`, `pre`, `prod`) usando **GitHub Environments**.
+
+## 4) Workflow de despliegue
+
+Se actualizó `.github/workflows/azure-deploy.yml` para:
+
+1. Login en Azure vía OIDC (`azure/login@v2`).
+2. Obtener `loginServer` de ACR.
+3. Build + push de imagen API.
+4. Build + push de imagen frontend (inyectando `VITE_API_BASE_URL` en build time).
+5. Cargar secretos en la Container App de la API.
+6. Actualizar imagen + variables de entorno en API.
+7. Actualizar imagen en frontend.
+
+El workflow se ejecuta en:
+
+- `workflow_dispatch` (manual).
+- `push` a `main` cuando cambian frontend, API o el propio workflow.
+
+## 5) Paso a paso de despliegue (primera vez)
+
+1. Crear recursos base en Azure (ver sección 6).
+2. Configurar secretos/variables de GitHub (sección 3).
+3. Verificar que ambas Container Apps tienen:
+   - Ingress habilitado.
+   - Puerto `8080`.
+   - Permisos de pull a ACR.
+4. Ejecutar el workflow manualmente (`Actions > Azure Deploy > Run workflow`).
+5. Validar:
+   - Frontend responde.
+   - `GET /health` en API responde OK.
+   - Login social y generación de tokens funcionan.
+
+## 6) Opciones para crear recursos Azure
+
+### Opción A (recomendada para producción): Terraform
+
+**Cuándo usarla:** entornos estables, equipos, auditoría y trazabilidad.
+
+**Ventajas**
+- Estado versionado, reusable y auditable.
+- Plan previo (`terraform plan`) antes de aplicar.
+- Módulos por entorno (dev/pre/prod).
+
+**Preparación recomendada**
+- Estructura por módulos (`network`, `acr`, `container_apps`, `mysql`).
+- Backend remoto del estado (Storage Account + lock).
+- Variables por entorno (`*.tfvars`) y secretos fuera del repo.
+
+### Opción B: Script Azure CLI
+
+**Cuándo usarla:** bootstrap rápido o PoC.
+
+**Ventajas**
+- Muy rápido de ejecutar.
+- Fácil de entender para operaciones puntuales.
+
+**Riesgos**
+- Menor trazabilidad que Terraform.
+- Más propenso a drift si no se disciplina.
+
+**Ejemplo mínimo (orientativo)**
+```bash
+az group create -n rg-bigschool-dev -l westeurope
+az acr create -n acrbigschooldev -g rg-bigschool-dev --sku Basic
+az containerapp env create -n cae-bigschool-dev -g rg-bigschool-dev -l westeurope
+az mysql flexible-server create -g rg-bigschool-dev -n mysql-bigschool-dev -l westeurope \
+  --admin-user resources_admin --admin-password '<secure-password>' --sku-name Standard_B1ms
+```
+
+### Opción C: ARM template (o Bicep)
+
+**Cuándo usarla:** organizaciones con estándar Microsoft puro o despliegues declarativos sin Terraform.
+
+**Ventajas**
+- Declarativo y nativo Azure.
+- Integración fuerte con políticas Azure.
+
+**Riesgos**
+- ARM JSON puede ser más verboso/mantenible que Terraform.
+
+**Preparación recomendada**
+- Parametrizar nombres por entorno.
+- Separar plantillas base y parámetros (`dev.parameters.json`, `prod.parameters.json`).
+- Integrar validación de plantillas en CI.
+
+## 7) Recomendación práctica
+
+- **Producción**: Terraform como base principal.
+- **Desarrollo inicial**: script CLI para bootstrap rápido y luego migrar a Terraform.
+- **Si el equipo ya usa ARM/Bicep**: mantener estándar interno y modularizar plantillas.
+
+## 8) Notas de operación
+
+- La API ejecuta migraciones en arranque (`Database.Migrate()`), por lo que el usuario de DB debe tener permisos adecuados.
+- `VITE_API_BASE_URL` es de build-time en el frontend: cambiar API pública implica reconstruir imagen frontend.
+- Rotar periódicamente `JWT_SIGNING_KEY`, credenciales DB y secretos OAuth.
