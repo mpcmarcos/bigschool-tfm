@@ -350,7 +350,7 @@ En el cliente OAuth de Google, añadir:
 
 ### 8.8 Nota importante
 - En el flujo actual (`idToken` en frontend), Google valida principalmente el **origin** del frontend.
-- La URL del backend API (`http://localhost:5000`) no se registra como origin OAuth en Google para este flujo.
+- La URL del backend API (`http://localhost:5174`) no se registra como origin OAuth en Google para este flujo.
 
 ## 9) Parámetros de configuración del proyecto
 

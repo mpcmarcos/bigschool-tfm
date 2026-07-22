@@ -27,14 +27,14 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Default: Server=mysql;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;
     ports:
-      - "5000:8080"
+      - "5174:8080"
 
   app:
     build:
       context: .
       dockerfile: src/resources-app/Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:5000
+        VITE_API_BASE_URL: http://localhost:5174
     depends_on:
       - api
     ports:
