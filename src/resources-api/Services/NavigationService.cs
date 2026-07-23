@@ -176,6 +176,7 @@ namespace resources_api.Services
             var version = await RequirePageVersionAsync(pageId, pageVersionId, cancellationToken);
 
             await ClearDefaultPageVersionAsync(pageId, pageVersionId, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
             version.IsDefault = true;
             version.UpdatedAt = DateTime.UtcNow;
 
@@ -353,6 +354,7 @@ namespace resources_api.Services
             var version = await RequireResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
 
             await ClearDefaultResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
             version.IsDefault = true;
             version.UpdatedAt = DateTime.UtcNow;
 
