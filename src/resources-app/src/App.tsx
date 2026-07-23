@@ -12,6 +12,7 @@ import {
   getResourceVersions,
   postLogout,
   postPage,
+  postPageVersion,
   postProject,
   postProjectMember,
   postResource,
@@ -268,6 +269,8 @@ function App() {
   const [newPageDescription, setNewPageDescription] = useState('')
   const [pageVersions, setPageVersions] = useState<PageVersionResponse[]>([])
   const [pageVersionsLoading, setPageVersionsLoading] = useState(false)
+  const [isCreatePageVersionModalOpen, setIsCreatePageVersionModalOpen] = useState(false)
+  const [newPageVersionName, setNewPageVersionName] = useState('')
   const [resources, setResources] = useState<ResourceResponse[]>([])
   const [resourcesLoading, setResourcesLoading] = useState(false)
   const [isCreateResourceModalOpen, setIsCreateResourceModalOpen] = useState(false)
@@ -668,6 +671,29 @@ function App() {
     }
   }
 
+  const handleCreatePageVersion = async () => {
+    if (!session || !route.projectId || !route.pageId) {
+      return
+    }
+
+    if (!newPageVersionName.trim()) {
+      setError('El nombre de la versión es obligatorio.')
+      return
+    }
+
+    try {
+      const createdVersion = await postPageVersion(session.accessToken, route.projectId, route.pageId, {
+        name: newPageVersionName,
+      })
+      setPageVersions((currentVersions) => [createdVersion, ...currentVersions])
+      setNewPageVersionName('')
+      setIsCreatePageVersionModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
   const handleCreateResource = async () => {
     if (!session || !route.projectId) {
       return
@@ -967,9 +993,14 @@ function App() {
           <section className="panel-card neon-border projects-panel">
             <div className="projects-header">
               <h1>Versiones de página</h1>
-              <button type="button" onClick={() => navigate(`/projects/${route.projectId}`)}>
-                Volver a páginas
-              </button>
+              <div className="project-subpanel-actions">
+                <button type="button" onClick={() => setIsCreatePageVersionModalOpen(true)}>
+                  Crear versión
+                </button>
+                <button type="button" onClick={() => navigate(`/projects/${route.projectId}`)}>
+                  Volver a páginas
+                </button>
+              </div>
             </div>
             {pageVersionsLoading ? <p>Cargando versiones...</p> : null}
             <ul className="projects-list">
@@ -1312,6 +1343,31 @@ function App() {
                 Guardar página
               </button>
               <button type="button" onClick={() => setIsCreatePageModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isCreatePageVersionModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Crear versión de página" aria-modal="true">
+          <article className="modal-card">
+            <h3>Crear versión de página</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-page-version-name">Nombre</label>
+              <input
+                id="new-page-version-name"
+                aria-label="Nombre de la versión nueva"
+                value={newPageVersionName}
+                onChange={(event) => setNewPageVersionName(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreatePageVersion()}>
+                Guardar versión
+              </button>
+              <button type="button" onClick={() => setIsCreatePageVersionModalOpen(false)}>
                 Cancelar
               </button>
             </div>

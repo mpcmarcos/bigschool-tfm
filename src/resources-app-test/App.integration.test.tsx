@@ -460,6 +460,21 @@ describe('App Home/Login/Projects flow', () => {
         return buildJsonResponse(pageVersions)
       }
 
+      if (input.includes('/api/v1/projects/project-1/pages/page-1/versions') && method === 'POST') {
+        const payload = JSON.parse(String(init?.body)) as { name: string }
+        const createdVersion = {
+          id: 'page-version-3',
+          pageId: 'page-1',
+          name: payload.name,
+          isDefault: false,
+          createdAt: '2026-01-03T00:00:00Z',
+          updatedAt: '2026-01-03T00:00:00Z',
+          isDeleted: false,
+        }
+        pageVersions.unshift(createdVersion)
+        return buildJsonResponse(createdVersion, 201)
+      }
+
       if (input.includes('/pages/page-1/versions/page-version-1/set-default') && method === 'POST') {
         pageVersions[0].isDefault = true
         pageVersions[1].isDefault = false
@@ -528,6 +543,11 @@ describe('App Home/Login/Projects flow', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Ver versiones' }))
     expect(await screen.findByRole('heading', { name: 'Versiones de página' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Crear versión' }))
+    const createVersionDialog = await screen.findByRole('dialog', { name: 'Crear versión de página' })
+    fireEvent.change(within(createVersionDialog).getByLabelText('Nombre de la versión nueva'), { target: { value: 'v3' } })
+    fireEvent.click(within(createVersionDialog).getByRole('button', { name: 'Guardar versión' }))
+    expect(await screen.findByRole('heading', { name: 'v3' })).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Marcar default' })[0])
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Ver recursos' })[0])

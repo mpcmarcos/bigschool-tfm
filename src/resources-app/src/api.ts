@@ -269,6 +269,21 @@ export const getPageVersions = async (
   return parseResponse<PageVersionResponse[]>(response)
 }
 
+export const postPageVersion = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  payload: { name: string },
+): Promise<PageVersionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<PageVersionResponse>(response)
+}
+
 export const setDefaultPageVersion = async (
   accessToken: string,
   projectId: string,

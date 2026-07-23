@@ -21,7 +21,5 @@ namespace resources_api.Models
         public Project Project { get; set; } = null!;
 
         public ICollection<ResourceVersion> Versions { get; set; } = new List<ResourceVersion>();
-
-        public ICollection<ResourcePage> ResourcePages { get; set; } = new List<ResourcePage>();
     }
 }

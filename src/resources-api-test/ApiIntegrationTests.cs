@@ -5,8 +5,11 @@ using System.Threading.Tasks;
 using System.Linq;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using resources_api.Contracts;
+using resources_api.Data;
+using resources_api.Models;
 using Xunit;
 
 namespace resources_api_test
@@ -416,6 +419,19 @@ namespace resources_api_test
 
             Assert.Equal(HttpStatusCode.Forbidden, outsiderPagesResponse.StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, outsiderResourcesResponse.StatusCode);
+        }
+
+        [Fact]
+        public void Navigation_Model_DoesNotCreateShadowResourceIdOnResourcePages()
+        {
+            var options = new DbContextOptionsBuilder<AppDbContext>()
+                .UseSqlite("Data Source=:memory:")
+                .Options;
+            using var context = new AppDbContext(options);
+            var resourcePageEntity = context.Model.FindEntityType(typeof(ResourcePage));
+
+            Assert.NotNull(resourcePageEntity);
+            Assert.DoesNotContain(resourcePageEntity!.GetProperties(), property => property.Name == "ResourceId");
         }
 
         private static async Task<JsonElement> LoginAsync(HttpClient client, string providerUserId, string email)
