@@ -67,6 +67,9 @@ namespace resources_api.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("DefaultVersionSlot")
+                        .HasComputedColumnSql("CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", true);
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("tinyint(1)");
 
@@ -88,9 +91,8 @@ namespace resources_api.Data.Migrations
 
                     b.HasIndex("PageId", "IsDeleted");
 
-                    b.HasIndex("PageId", "IsDefault")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = 1 AND \"IsDeleted\" = 0");
+                    b.HasIndex("PageId", "DefaultVersionSlot")
+                        .IsUnique();
 
                     b.ToTable("PageVersions");
                 });
@@ -282,6 +284,9 @@ namespace resources_api.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
+                    b.Property<int?>("DefaultVersionSlot")
+                        .HasComputedColumnSql("CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", true);
+
                     b.Property<bool>("IsDefault")
                         .HasColumnType("tinyint(1)");
 
@@ -307,9 +312,8 @@ namespace resources_api.Data.Migrations
 
                     b.HasIndex("ResourceId", "IsDeleted");
 
-                    b.HasIndex("ResourceId", "IsDefault")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = 1 AND \"IsDeleted\" = 0");
+                    b.HasIndex("ResourceId", "DefaultVersionSlot")
+                        .IsUnique();
 
                     b.ToTable("ResourceVersions");
                 });

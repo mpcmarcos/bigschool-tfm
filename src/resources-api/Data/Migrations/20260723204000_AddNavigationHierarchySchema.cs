@@ -73,7 +73,8 @@ namespace resources_api.Data.Migrations
                     IsDefault = table.Column<bool>(type: "tinyint(1)", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    IsDeleted = table.Column<bool>(type: "tinyint(1)", nullable: false)
+                    IsDeleted = table.Column<bool>(type: "tinyint(1)", nullable: false),
+                    DefaultVersionSlot = table.Column<int>(type: "int", nullable: true, computedColumnSql: "CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", stored: true)
                 },
                 constraints: table =>
                 {
@@ -100,7 +101,8 @@ namespace resources_api.Data.Migrations
                     IsDefault = table.Column<bool>(type: "tinyint(1)", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
                     UpdatedAt = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    IsDeleted = table.Column<bool>(type: "tinyint(1)", nullable: false)
+                    IsDeleted = table.Column<bool>(type: "tinyint(1)", nullable: false),
+                    DefaultVersionSlot = table.Column<int>(type: "int", nullable: true, computedColumnSql: "CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", stored: true)
                 },
                 constraints: table =>
                 {
@@ -149,11 +151,10 @@ namespace resources_api.Data.Migrations
                 columns: new[] { "PageId", "IsDeleted" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_PageVersions_PageId_IsDefault",
+                name: "IX_PageVersions_PageId_DefaultVersionSlot",
                 table: "PageVersions",
-                columns: new[] { "PageId", "IsDefault" },
-                unique: true,
-                filter: "\"IsDefault\" = 1 AND \"IsDeleted\" = 0");
+                columns: new[] { "PageId", "DefaultVersionSlot" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Pages_ProjectId_IsDeleted",
@@ -192,11 +193,10 @@ namespace resources_api.Data.Migrations
                 columns: new[] { "ResourceId", "IsDeleted" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_ResourceVersions_ResourceId_IsDefault",
+                name: "IX_ResourceVersions_ResourceId_DefaultVersionSlot",
                 table: "ResourceVersions",
-                columns: new[] { "ResourceId", "IsDefault" },
-                unique: true,
-                filter: "\"IsDefault\" = 1 AND \"IsDeleted\" = 0");
+                columns: new[] { "ResourceId", "DefaultVersionSlot" },
+                unique: true);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)

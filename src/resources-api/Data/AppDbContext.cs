@@ -19,6 +19,16 @@ namespace resources_api.Data
 
         public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
 
+        public DbSet<Page> Pages => Set<Page>();
+
+        public DbSet<PageVersion> PageVersions => Set<PageVersion>();
+
+        public DbSet<Resource> Resources => Set<Resource>();
+
+        public DbSet<ResourceVersion> ResourceVersions => Set<ResourceVersion>();
+
+        public DbSet<ResourcePage> ResourcePages => Set<ResourcePage>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<User>(entity =>
@@ -96,9 +106,9 @@ namespace resources_api.Data
                 entity.Property(x => x.UpdatedAt).IsRequired();
                 entity.Property(x => x.IsDeleted).IsRequired();
                 entity.HasIndex(x => new { x.PageId, x.IsDeleted });
-                entity.HasIndex(x => new { x.PageId, x.IsDefault })
-                    .HasFilter("\"IsDefault\" = 1 AND \"IsDeleted\" = 0")
-                    .IsUnique();
+                entity.Property<int?>("DefaultVersionSlot")
+                    .HasComputedColumnSql("CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", stored: true);
+                entity.HasIndex("PageId", "DefaultVersionSlot").IsUnique();
                 entity.HasOne(x => x.Page)
                     .WithMany(x => x.Versions)
                     .HasForeignKey(x => x.PageId)
@@ -131,9 +141,9 @@ namespace resources_api.Data
                 entity.Property(x => x.UpdatedAt).IsRequired();
                 entity.Property(x => x.IsDeleted).IsRequired();
                 entity.HasIndex(x => new { x.ResourceId, x.IsDeleted });
-                entity.HasIndex(x => new { x.ResourceId, x.IsDefault })
-                    .HasFilter("\"IsDefault\" = 1 AND \"IsDeleted\" = 0")
-                    .IsUnique();
+                entity.Property<int?>("DefaultVersionSlot")
+                    .HasComputedColumnSql("CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", stored: true);
+                entity.HasIndex("ResourceId", "DefaultVersionSlot").IsUnique();
                 entity.HasOne(x => x.Resource)
                     .WithMany(x => x.Versions)
                     .HasForeignKey(x => x.ResourceId)
