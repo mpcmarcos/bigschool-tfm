@@ -18,6 +18,10 @@ namespace resources_api.Models
 
         public User OwnerUser { get; set; } = null!;
 
+        public ICollection<Page> Pages { get; set; } = new List<Page>();
+
+        public ICollection<Resource> Resources { get; set; } = new List<Resource>();
+
         public ICollection<ProjectMember> Members { get; set; } = new List<ProjectMember>();
     }
 }
