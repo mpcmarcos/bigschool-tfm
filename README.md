@@ -1,6 +1,6 @@
 # bigschool-tfm
 
-Proyectos base para:
+Proyectos base para: 
 - `resources-app` (React + TypeScript)
 - `resources-api` (ASP.NET Core API)
 - `resources-app-test` (tests frontend)
