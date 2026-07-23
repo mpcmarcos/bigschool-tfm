@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using resources_api.Data;
 
@@ -11,9 +12,11 @@ using resources_api.Data;
 namespace resources_api.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260722070000_AddProjectsSchema")]
+    partial class AddProjectsSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,6 +24,76 @@ namespace resources_api.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
             MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
+
+            modelBuilder.Entity("resources_api.Models.Project", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(2000)
+                        .HasColumnType("varchar(2000)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerUserId", "IsDeleted");
+
+                    b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("resources_api.Models.ProjectMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("char(36)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("char(36)");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("varchar(20)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("char(36)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "UserId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "IsDeleted");
+
+                    b.ToTable("ProjectMembers");
+                });
 
             modelBuilder.Entity("resources_api.Models.RefreshToken", b =>
                 {
@@ -115,6 +188,36 @@ namespace resources_api.Data.Migrations
                     b.ToTable("UserSocialLogins");
                 });
 
+            modelBuilder.Entity("resources_api.Models.Project", b =>
+                {
+                    b.HasOne("resources_api.Models.User", "OwnerUser")
+                        .WithMany("OwnedProjects")
+                        .HasForeignKey("OwnerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OwnerUser");
+                });
+
+            modelBuilder.Entity("resources_api.Models.ProjectMember", b =>
+                {
+                    b.HasOne("resources_api.Models.Project", "Project")
+                        .WithMany("Members")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("resources_api.Models.User", "User")
+                        .WithMany("ProjectMemberships")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("resources_api.Models.RefreshToken", b =>
                 {
                     b.HasOne("resources_api.Models.User", "User")
@@ -137,8 +240,17 @@ namespace resources_api.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("resources_api.Models.Project", b =>
+                {
+                    b.Navigation("Members");
+                });
+
             modelBuilder.Entity("resources_api.Models.User", b =>
                 {
+                    b.Navigation("OwnedProjects");
+
+                    b.Navigation("ProjectMemberships");
+
                     b.Navigation("RefreshTokens");
 
                     b.Navigation("SocialLogins");

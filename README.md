@@ -102,9 +102,9 @@ Variables esperadas en `src/resources-app/.env` para login social:
 
 ### URLs a abrir (sin Docker)
 - Frontend: `http://localhost:5173`
-- API base: `http://localhost:5000`
-- API health check: `http://localhost:5000/health`
-- API echo (POST): `http://localhost:5000/echo`
+- API base: `http://localhost:5174`
+- API health check: `http://localhost:5174/health`
+- API echo (POST): `http://localhost:5174/echo`
 
 ## Tests y validación
 
@@ -169,7 +169,7 @@ docker compose up --build
 
 Servicios disponibles:
 - Frontend: `http://localhost:5173`
-- API: `http://localhost:5000`
+- API: `http://localhost:5174`
 - MySQL: `localhost:3306`
 
 ### Conexión a MySQL (ejecución local con Docker)

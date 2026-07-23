@@ -81,6 +81,7 @@
 }
 
 .top-nav-links a,
+.top-nav-links button,
 .theme-toggle {
   color: var(--text-main);
   font-size: 0.95rem;
@@ -93,9 +94,15 @@
 }
 
 .top-nav-links a:hover,
+.top-nav-links button:hover,
 .theme-toggle:hover {
   border-color: var(--line);
   background: rgba(99, 102, 241, 0.12);
+}
+
+.top-user-email {
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 .theme-toggle {
@@ -333,6 +340,131 @@
   color: var(--text-main);
 }
 
+.projects-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.project-create-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 0.8rem;
+  align-items: center;
+}
+
+.project-create-form input,
+.project-subpanel input,
+.project-subpanel select {
+  border: 1px solid var(--line);
+  background: var(--bg-card-soft);
+  color: var(--text-main);
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.projects-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.project-card {
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  padding: 0.9rem;
+  background: var(--bg-card-soft);
+}
+
+.project-card h2 {
+  margin: 0;
+}
+
+.project-properties {
+  margin: 0.75rem 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem 0.8rem;
+}
+
+.project-properties div {
+  overflow-wrap: anywhere;
+}
+
+.project-properties dt {
+  font-weight: 700;
+}
+
+.project-properties dd {
+  margin: 0.1rem 0 0;
+}
+
+.project-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.project-subpanel {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.8rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.project-subpanel h3 {
+  margin: 0;
+}
+
+.project-subpanel-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.members-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 11, 24, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background: var(--bg-card);
+  padding: 1rem;
+  box-shadow: var(--shadow-neon);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.modal-card h3,
+.modal-card h4 {
+  margin: 0;
+}
+
 .error {
   margin-top: 0.75rem;
   color: #ff6678;
@@ -369,6 +501,10 @@
   }
 
   .testimonial-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-properties {
     grid-template-columns: 1fr;
   }
 
