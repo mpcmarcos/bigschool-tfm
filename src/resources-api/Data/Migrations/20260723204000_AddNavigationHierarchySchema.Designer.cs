@@ -349,8 +349,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("resources_api.Models.PageVersion", b =>
@@ -360,8 +358,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("PageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Page");
                 });
 
             modelBuilder.Entity("resources_api.Models.Project", b =>
@@ -371,8 +367,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("OwnerUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.Navigation("OwnerUser");
                 });
 
             modelBuilder.Entity("resources_api.Models.ProjectMember", b =>
@@ -388,10 +382,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Project");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("resources_api.Models.Resource", b =>
@@ -401,8 +391,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("resources_api.Models.ResourcePage", b =>
@@ -418,10 +406,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("ResourceVersionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("PageVersion");
-
-                    b.Navigation("ResourceVersion");
                 });
 
             modelBuilder.Entity("resources_api.Models.ResourceVersion", b =>
@@ -431,40 +415,6 @@ namespace resources_api.Data.Migrations
                         .HasForeignKey("ResourceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("Resource");
-                });
-
-            modelBuilder.Entity("resources_api.Models.Project", b =>
-                {
-                    b.Navigation("Members");
-
-                    b.Navigation("Pages");
-
-                    b.Navigation("Resources");
-                });
-
-            modelBuilder.Entity("resources_api.Models.Resource", b =>
-                {
-                    b.Navigation("ResourcePages");
-
-                    b.Navigation("Versions");
-                });
-
-            modelBuilder.Entity("resources_api.Models.ResourceVersion", b =>
-                {
-                    b.Navigation("ResourcePages");
-                });
-
-            modelBuilder.Entity("resources_api.Models.User", b =>
-                {
-                    b.Navigation("OwnedProjects");
-
-                    b.Navigation("ProjectMemberships");
-
-                    b.Navigation("RefreshTokens");
-
-                    b.Navigation("SocialLogins");
                 });
 #pragma warning restore 612, 618
         }
