@@ -23,6 +23,8 @@ jobs:
       AZURE_API_CONTAINER_APP: ${{ vars.AZURE_API_CONTAINER_APP }}
       AZURE_WEB_CONTAINER_APP: ${{ vars.AZURE_WEB_CONTAINER_APP }}
       FRONTEND_API_BASE_URL: ${{ vars.FRONTEND_API_BASE_URL }}
+      GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+      FRONTEND_GOOGLE_CLIENT_ID: ${{ vars.FRONTEND_GOOGLE_CLIENT_ID }}
       JWT_ISSUER: ${{ vars.JWT_ISSUER }}
       JWT_AUDIENCE: ${{ vars.JWT_AUDIENCE }}
       IMAGE_TAG: ${{ github.sha }}
@@ -57,6 +59,7 @@ jobs:
           docker build \
             -f src/resources-app/Dockerfile \
             --build-arg VITE_API_BASE_URL="$FRONTEND_API_BASE_URL" \
+            --build-arg VITE_GOOGLE_CLIENT_ID="$FRONTEND_GOOGLE_CLIENT_ID" \
             -t "$ACR_LOGIN_SERVER/resources-app:$IMAGE_TAG" .
           docker push "$ACR_LOGIN_SERVER/resources-app:$IMAGE_TAG"
 
@@ -64,7 +67,7 @@ jobs:
         env:
           DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           az containerapp secret set \
             --name "$AZURE_API_CONTAINER_APP" \
@@ -72,7 +75,7 @@ jobs:
             --secrets \
               db-connection-string="$DB_CONNECTION_STRING" \
               jwt-signing-key="$JWT_SIGNING_KEY" \
-              google-client-id="$GOOGLE_CLIENT_ID"
+              google-client-secret="$GOOGLE_CLIENT_SECRET"
 
           az containerapp update \
             --name "$AZURE_API_CONTAINER_APP" \
@@ -83,7 +86,8 @@ jobs:
               Authentication__Jwt__SigningKey=secretref:jwt-signing-key \
               Authentication__Jwt__Issuer="$JWT_ISSUER" \
               Authentication__Jwt__Audience="$JWT_AUDIENCE" \
-              Authentication__Google__ClientId=secretref:google-client-id
+              Authentication__Google__ClientId="$FRONTEND_GOOGLE_CLIENT_ID" \
+              Authentication__Google__ClientSecret=secretref:google-client-secret
 
       - name: Update frontend Container App
         run: |
