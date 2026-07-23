@@ -3,16 +3,33 @@ import { GoogleLogin } from '@react-oauth/google'
 import type { CredentialResponse } from '@react-oauth/google'
 import {
   deleteProject,
+  getPageVersions,
+  getPages,
   getProjectMembers,
   getProjects,
+  getResourcePages,
+  getResources,
+  getResourceVersions,
   postLogout,
+  postPage,
+  postPageVersion,
   postProject,
   postProjectMember,
+  postResource,
+  postResourcePage,
+  postResourceVersion,
   postSocialLogin,
   putProject,
+  setDefaultPageVersion,
+  setDefaultResourceVersion,
   type AuthResponse,
+  type PageResponse,
+  type PageVersionResponse,
   type ProjectMemberResponse,
   type ProjectResponse,
+  type ResourcePageResponse,
+  type ResourceResponse,
+  type ResourceVersionResponse,
 } from './api'
 import resourceAppLogo from './assets/resourceapp-logo.svg'
 import claraMartinPhoto from './assets/home/testimonials/clara-martin.webp'
@@ -28,6 +45,10 @@ type HomeSectionId = 'features' | 'clients' | 'testimonials'
 type RouteInfo = {
   view: 'home' | 'login' | 'projects'
   projectId: string | null
+  pageId: string | null
+  pageVersionId: string | null
+  resourceId: string | null
+  resourcePageId: string | null
 }
 
 type ClientLogoPalette = {
@@ -202,17 +223,21 @@ const normalizePath = (pathname: string): string => {
 
 const resolveRoute = (path: string): RouteInfo => {
   if (path === '/login') {
-    return { view: 'login', projectId: null }
+    return { view: 'login', projectId: null, pageId: null, pageVersionId: null, resourceId: null, resourcePageId: null }
   }
 
   if (path === '/') {
-    return { view: 'home', projectId: null }
+    return { view: 'home', projectId: null, pageId: null, pageVersionId: null, resourceId: null, resourcePageId: null }
   }
 
   const pathSegments = path.split('/').filter(Boolean)
   return {
     view: 'projects',
     projectId: pathSegments.length > 1 ? pathSegments[1] : null,
+    pageId: pathSegments.length > 2 ? pathSegments[2] : null,
+    pageVersionId: pathSegments.length > 3 ? pathSegments[3] : null,
+    resourceId: pathSegments.length > 4 ? pathSegments[4] : null,
+    resourcePageId: pathSegments.length > 5 ? pathSegments[5] : null,
   }
 }
 
@@ -237,6 +262,29 @@ function App() {
   const [shareRole, setShareRole] = useState('viewer')
   const [membersLoading, setMembersLoading] = useState(false)
   const [deleteConfirmationProjectId, setDeleteConfirmationProjectId] = useState<string | null>(null)
+  const [pages, setPages] = useState<PageResponse[]>([])
+  const [pagesLoading, setPagesLoading] = useState(false)
+  const [isCreatePageModalOpen, setIsCreatePageModalOpen] = useState(false)
+  const [newPageName, setNewPageName] = useState('')
+  const [newPageDescription, setNewPageDescription] = useState('')
+  const [pageVersions, setPageVersions] = useState<PageVersionResponse[]>([])
+  const [pageVersionsLoading, setPageVersionsLoading] = useState(false)
+  const [isCreatePageVersionModalOpen, setIsCreatePageVersionModalOpen] = useState(false)
+  const [newPageVersionName, setNewPageVersionName] = useState('')
+  const [resources, setResources] = useState<ResourceResponse[]>([])
+  const [resourcesLoading, setResourcesLoading] = useState(false)
+  const [isCreateResourceModalOpen, setIsCreateResourceModalOpen] = useState(false)
+  const [newResourceKey, setNewResourceKey] = useState('')
+  const [newResourceDescription, setNewResourceDescription] = useState('')
+  const [resourceVersions, setResourceVersions] = useState<ResourceVersionResponse[]>([])
+  const [resourceVersionsLoading, setResourceVersionsLoading] = useState(false)
+  const [isCreateResourceVersionModalOpen, setIsCreateResourceVersionModalOpen] = useState(false)
+  const [newResourceVersionName, setNewResourceVersionName] = useState('')
+  const [newResourceVersionValue, setNewResourceVersionValue] = useState('')
+  const [resourcePages, setResourcePages] = useState<ResourcePageResponse[]>([])
+  const [resourcePagesLoading, setResourcePagesLoading] = useState(false)
+  const [isCreateResourcePageModalOpen, setIsCreateResourcePageModalOpen] = useState(false)
+  const [newResourcePageResourceVersionId, setNewResourcePageResourceVersionId] = useState('')
   const route = useMemo(() => resolveRoute(currentPath), [currentPath])
 
   useEffect(() => {
@@ -264,7 +312,7 @@ function App() {
   }, [route.view, session])
 
   useEffect(() => {
-    if (route.view !== 'projects' || !session) {
+    if (route.view !== 'projects' || !session || route.projectId) {
       return
     }
 
@@ -282,7 +330,7 @@ function App() {
     }
 
     void loadProjects()
-  }, [route.view, session])
+  }, [route.view, route.projectId, session])
 
   const navigate = (path: string) => {
     window.history.pushState({}, '', path)
@@ -335,6 +383,11 @@ function App() {
       localStorage.removeItem(SESSION_STORAGE_KEY)
       setSession(null)
       setProjects([])
+      setPages([])
+      setPageVersions([])
+      setResources([])
+      setResourceVersions([])
+      setResourcePages([])
       navigate('/login')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
@@ -443,7 +496,8 @@ function App() {
 
     try {
       await deleteProject(session.accessToken, projectId)
-      setProjects((currentProjects) => currentProjects.filter((project) => project.id !== projectId))
+      const refreshedProjects = await getProjects(session.accessToken)
+      setProjects(refreshedProjects.filter((project) => !project.isDeleted))
       if (sharingProjectId === projectId) {
         setSharingProjectId(null)
         setProjectMembers([])
@@ -502,6 +556,234 @@ function App() {
       })
       setShareEmail('')
       setShareRole('viewer')
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  useEffect(() => {
+    if (route.view !== 'projects' || !session || !route.projectId) {
+      return
+    }
+    const projectId = route.projectId
+    const pageId = route.pageId
+    const pageVersionId = route.pageVersionId
+    const resourceId = route.resourceId
+
+    const loadHierarchy = async () => {
+      setError('')
+      try {
+        if (!pageId) {
+          setPagesLoading(true)
+          const fetchedPages = await getPages(session.accessToken, projectId)
+          setPages(fetchedPages.filter((page) => !page.isDeleted))
+          setPageVersions([])
+          setResourcePages([])
+          setResources([])
+          setResourceVersions([])
+          return
+        }
+
+        if (!pageVersionId) {
+          setPageVersionsLoading(true)
+          const fetchedVersions = await getPageVersions(session.accessToken, projectId, pageId)
+          setPageVersions(fetchedVersions.filter((version) => !version.isDeleted))
+          setResourcePages([])
+          setResources([])
+          setResourceVersions([])
+          return
+        }
+
+        if (!resourceId) {
+          setResourcePagesLoading(true)
+          setResourcesLoading(true)
+          const [fetchedResourcePages, fetchedResources] = await Promise.all([
+            getResourcePages(session.accessToken, projectId, pageId, pageVersionId),
+            getResources(session.accessToken, projectId),
+          ])
+          setResourcePages(fetchedResourcePages.filter((resourcePage) => !resourcePage.isDeleted))
+          setResources(fetchedResources.filter((resource) => !resource.isDeleted))
+          setResourceVersions([])
+          return
+        }
+
+        if (!route.resourcePageId) {
+          setResourceVersionsLoading(true)
+          const fetchedResourceVersions = await getResourceVersions(session.accessToken, projectId, resourceId)
+          setResourceVersions(fetchedResourceVersions.filter((version) => !version.isDeleted))
+          return
+        }
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+      } finally {
+        setPagesLoading(false)
+        setPageVersionsLoading(false)
+        setResourcePagesLoading(false)
+        setResourcesLoading(false)
+        setResourceVersionsLoading(false)
+      }
+    }
+
+    void loadHierarchy()
+  }, [route, session])
+
+  const handleCreatePage = async () => {
+    if (!session || !route.projectId) {
+      return
+    }
+
+    if (!newPageName.trim()) {
+      setError('El nombre de la página es obligatorio.')
+      return
+    }
+
+    try {
+      const createdPage = await postPage(session.accessToken, route.projectId, {
+        name: newPageName,
+        description: newPageDescription,
+      })
+      setPages((currentPages) => [createdPage, ...currentPages])
+      setNewPageName('')
+      setNewPageDescription('')
+      setIsCreatePageModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleSetDefaultPageVersion = async (pageVersionId: string) => {
+    if (!session || !route.projectId || !route.pageId) {
+      return
+    }
+
+    try {
+      const updatedVersion = await setDefaultPageVersion(session.accessToken, route.projectId, route.pageId, pageVersionId)
+      setPageVersions((currentVersions) =>
+        currentVersions.map((version) =>
+          version.id === updatedVersion.id ? updatedVersion : { ...version, isDefault: false },
+        ),
+      )
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleCreatePageVersion = async () => {
+    if (!session || !route.projectId || !route.pageId) {
+      return
+    }
+
+    if (!newPageVersionName.trim()) {
+      setError('El nombre de la versión es obligatorio.')
+      return
+    }
+
+    try {
+      const createdVersion = await postPageVersion(session.accessToken, route.projectId, route.pageId, {
+        name: newPageVersionName,
+      })
+      setPageVersions((currentVersions) => [createdVersion, ...currentVersions])
+      setNewPageVersionName('')
+      setIsCreatePageVersionModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleCreateResource = async () => {
+    if (!session || !route.projectId) {
+      return
+    }
+
+    if (!newResourceKey.trim()) {
+      setError('La key del recurso es obligatoria.')
+      return
+    }
+
+    try {
+      const createdResource = await postResource(session.accessToken, route.projectId, {
+        key: newResourceKey,
+        description: newResourceDescription,
+      })
+      setResources((currentResources) => [createdResource, ...currentResources])
+      setNewResourceKey('')
+      setNewResourceDescription('')
+      setIsCreateResourceModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleCreateResourceVersion = async () => {
+    if (!session || !route.projectId || !route.resourceId) {
+      return
+    }
+
+    if (!newResourceVersionName.trim() || !newResourceVersionValue.trim()) {
+      setError('Nombre y valor de versión son obligatorios.')
+      return
+    }
+
+    try {
+      const createdVersion = await postResourceVersion(session.accessToken, route.projectId, route.resourceId, {
+        name: newResourceVersionName,
+        value: newResourceVersionValue,
+      })
+      setResourceVersions((currentVersions) => [createdVersion, ...currentVersions])
+      setNewResourceVersionName('')
+      setNewResourceVersionValue('')
+      setIsCreateResourceVersionModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleSetDefaultResourceVersion = async (resourceVersionId: string) => {
+    if (!session || !route.projectId || !route.resourceId) {
+      return
+    }
+
+    try {
+      const updatedVersion = await setDefaultResourceVersion(
+        session.accessToken,
+        route.projectId,
+        route.resourceId,
+        resourceVersionId,
+      )
+      setResourceVersions((currentVersions) =>
+        currentVersions.map((version) =>
+          version.id === updatedVersion.id ? updatedVersion : { ...version, isDefault: false },
+        ),
+      )
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleCreateResourcePage = async () => {
+    if (!session || !route.projectId || !route.pageId || !route.pageVersionId) {
+      return
+    }
+
+    if (!newResourcePageResourceVersionId.trim()) {
+      setError('Debes seleccionar una versión de recurso.')
+      return
+    }
+
+    try {
+      const createdResourcePage = await postResourcePage(session.accessToken, route.projectId, route.pageId, route.pageVersionId, {
+        resourceVersionId: newResourcePageResourceVersionId,
+      })
+      setResourcePages((currentPages) => [createdResourcePage, ...currentPages])
+      setNewResourcePageResourceVersionId('')
+      setIsCreateResourcePageModalOpen(false)
       setError('')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
@@ -679,14 +961,160 @@ function App() {
           )}
         </section>
       ) : route.projectId ? (
-        <section className="panel-card neon-border">
-          <h1>Páginas del proyecto</h1>
-          <p>Ruta actual: {currentPath}</p>
-          <p>Listado de páginas (pendiente de implementación)</p>
-          <button type="button" onClick={() => navigate('/projects')}>
-            Volver a proyectos
-          </button>
-        </section>
+        !route.pageId ? (
+          <section className="panel-card neon-border projects-panel">
+            <div className="projects-header">
+              <h1>Páginas del proyecto</h1>
+              <div className="project-subpanel-actions">
+                <button type="button" onClick={() => setIsCreatePageModalOpen(true)}>
+                  Crear página
+                </button>
+                <button type="button" onClick={() => navigate('/projects')}>
+                  Volver a proyectos
+                </button>
+              </div>
+            </div>
+            {pagesLoading ? <p>Cargando páginas...</p> : null}
+            <ul className="projects-list">
+              {pages.map((page) => (
+                <li key={page.id} className="project-card">
+                  <h2>{page.name}</h2>
+                  <p>{page.description ?? 'Sin descripción'}</p>
+                  <div className="project-actions">
+                    <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${page.id}`)}>
+                      Ver versiones
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : !route.pageVersionId ? (
+          <section className="panel-card neon-border projects-panel">
+            <div className="projects-header">
+              <h1>Versiones de página</h1>
+              <div className="project-subpanel-actions">
+                <button type="button" onClick={() => setIsCreatePageVersionModalOpen(true)}>
+                  Crear versión
+                </button>
+                <button type="button" onClick={() => navigate(`/projects/${route.projectId}`)}>
+                  Volver a páginas
+                </button>
+              </div>
+            </div>
+            {pageVersionsLoading ? <p>Cargando versiones...</p> : null}
+            <ul className="projects-list">
+              {pageVersions.map((version) => (
+                <li key={version.id} className="project-card">
+                  <h2>
+                    {version.name}
+                    {version.isDefault ? ' · default' : ''}
+                  </h2>
+                  <div className="project-actions">
+                    <button type="button" onClick={() => void handleSetDefaultPageVersion(version.id)}>
+                      Marcar default
+                    </button>
+                    <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${version.id}`)}>
+                      Ver recursos
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : !route.resourceId ? (
+          <section className="panel-card neon-border projects-panel">
+            <div className="projects-header">
+              <h1>Recursos en versión de página</h1>
+              <div className="project-subpanel-actions">
+                <button type="button" onClick={() => setIsCreateResourceModalOpen(true)}>
+                  Crear recurso
+                </button>
+                <button type="button" onClick={() => setIsCreateResourcePageModalOpen(true)}>
+                  Vincular recurso
+                </button>
+                <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}`)}>
+                  Volver a versiones
+                </button>
+              </div>
+            </div>
+            {(resourcePagesLoading || resourcesLoading) ? <p>Cargando recursos...</p> : null}
+            <h2>Recursos del proyecto</h2>
+            <ul className="projects-list">
+              {resources.map((resource) => (
+                <li key={resource.id} className="project-card">
+                  <h3>{resource.key}</h3>
+                  <p>{resource.description ?? 'Sin descripción'}</p>
+                  <div className="project-actions">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${resource.id}`)}
+                    >
+                      Ver versiones recurso
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <h2>Vínculos de recurso en página</h2>
+            <ul className="members-list">
+              {resourcePages.map((resourcePage) => (
+                <li key={resourcePage.id}>
+                  {resourcePage.id} · version {resourcePage.resourceVersionId}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : !route.resourcePageId ? (
+          <section className="panel-card neon-border projects-panel">
+            <div className="projects-header">
+              <h1>Versiones de recurso</h1>
+              <div className="project-subpanel-actions">
+                <button type="button" onClick={() => setIsCreateResourceVersionModalOpen(true)}>
+                  Crear versión recurso
+                </button>
+                <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}`)}>
+                  Volver a recursos
+                </button>
+              </div>
+            </div>
+            {resourceVersionsLoading ? <p>Cargando versiones de recurso...</p> : null}
+            <ul className="projects-list">
+              {resourceVersions.map((version) => (
+                <li key={version.id} className="project-card">
+                  <h2>
+                    {version.name}
+                    {version.isDefault ? ' · default' : ''}
+                  </h2>
+                  <p>{version.value}</p>
+                  <div className="project-actions">
+                    <button type="button" onClick={() => void handleSetDefaultResourceVersion(version.id)}>
+                      Marcar default
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${route.resourceId}/${version.id}`)}
+                    >
+                      Ver detalle en página
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <section className="panel-card neon-border">
+            <h1>Detalle recurso en página</h1>
+            <p>Project: {route.projectId}</p>
+            <p>Page: {route.pageId}</p>
+            <p>PageVersion: {route.pageVersionId}</p>
+            <p>Resource: {route.resourceId}</p>
+            <p>ResourcePage: {route.resourcePageId}</p>
+            <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${route.resourceId}`)}>
+              Volver a versiones recurso
+            </button>
+          </section>
+        )
       ) : (
         <section className="panel-card neon-border projects-panel">
           <div className="projects-header">
@@ -889,6 +1317,152 @@ function App() {
           ) : null}
         </section>
       )}
+
+      {isCreatePageModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Crear página" aria-modal="true">
+          <article className="modal-card">
+            <h3>Crear página</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-page-name">Nombre</label>
+              <input
+                id="new-page-name"
+                aria-label="Nombre de la página nueva"
+                value={newPageName}
+                onChange={(event) => setNewPageName(event.target.value)}
+              />
+              <label htmlFor="new-page-description">Descripción</label>
+              <input
+                id="new-page-description"
+                aria-label="Descripción de la página nueva"
+                value={newPageDescription}
+                onChange={(event) => setNewPageDescription(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreatePage()}>
+                Guardar página
+              </button>
+              <button type="button" onClick={() => setIsCreatePageModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isCreatePageVersionModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Crear versión de página" aria-modal="true">
+          <article className="modal-card">
+            <h3>Crear versión de página</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-page-version-name">Nombre</label>
+              <input
+                id="new-page-version-name"
+                aria-label="Nombre de la versión nueva"
+                value={newPageVersionName}
+                onChange={(event) => setNewPageVersionName(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreatePageVersion()}>
+                Guardar versión
+              </button>
+              <button type="button" onClick={() => setIsCreatePageVersionModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isCreateResourceModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Crear recurso" aria-modal="true">
+          <article className="modal-card">
+            <h3>Crear recurso</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-resource-key">Key</label>
+              <input
+                id="new-resource-key"
+                aria-label="Key del recurso nuevo"
+                value={newResourceKey}
+                onChange={(event) => setNewResourceKey(event.target.value)}
+              />
+              <label htmlFor="new-resource-description">Descripción</label>
+              <input
+                id="new-resource-description"
+                aria-label="Descripción del recurso nuevo"
+                value={newResourceDescription}
+                onChange={(event) => setNewResourceDescription(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreateResource()}>
+                Guardar recurso
+              </button>
+              <button type="button" onClick={() => setIsCreateResourceModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isCreateResourceVersionModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Crear versión recurso" aria-modal="true">
+          <article className="modal-card">
+            <h3>Crear versión recurso</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-resource-version-name">Nombre</label>
+              <input
+                id="new-resource-version-name"
+                aria-label="Nombre versión recurso"
+                value={newResourceVersionName}
+                onChange={(event) => setNewResourceVersionName(event.target.value)}
+              />
+              <label htmlFor="new-resource-version-value">Valor</label>
+              <input
+                id="new-resource-version-value"
+                aria-label="Valor versión recurso"
+                value={newResourceVersionValue}
+                onChange={(event) => setNewResourceVersionValue(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreateResourceVersion()}>
+                Guardar versión
+              </button>
+              <button type="button" onClick={() => setIsCreateResourceVersionModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isCreateResourcePageModalOpen ? (
+        <section className="modal-backdrop" role="dialog" aria-label="Vincular recurso" aria-modal="true">
+          <article className="modal-card">
+            <h3>Vincular recurso a la versión de página</h3>
+            <div className="project-subpanel">
+              <label htmlFor="new-resource-page-resource-version-id">ResourceVersionId</label>
+              <input
+                id="new-resource-page-resource-version-id"
+                aria-label="ResourceVersionId a vincular"
+                value={newResourcePageResourceVersionId}
+                onChange={(event) => setNewResourcePageResourceVersionId(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleCreateResourcePage()}>
+                Guardar relación
+              </button>
+              <button type="button" onClick={() => setIsCreateResourcePageModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
 
       {error && <p role="alert" className="error">{error}</p>}
     </main>

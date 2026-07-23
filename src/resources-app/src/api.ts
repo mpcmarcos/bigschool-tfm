@@ -45,6 +45,56 @@ export type ProjectMemberResponse = {
   isDeleted: boolean
 }
 
+export type PageResponse = {
+  id: string
+  projectId: string
+  name: string
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
+export type PageVersionResponse = {
+  id: string
+  pageId: string
+  name: string
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
+export type ResourceResponse = {
+  id: string
+  projectId: string
+  key: string
+  description: string | null
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
+export type ResourceVersionResponse = {
+  id: string
+  resourceId: string
+  name: string
+  value: string
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
+export type ResourcePageResponse = {
+  id: string
+  pageVersionId: string
+  resourceVersionId: string
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+}
+
 type ProblemDetails = {
   detail?: string
   title?: string
@@ -183,4 +233,171 @@ export const postProjectMember = async (
   })
 
   return parseResponse<ProjectMemberResponse>(response)
+}
+
+export const getPages = async (accessToken: string, projectId: string): Promise<PageResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<PageResponse[]>(response)
+}
+
+export const postPage = async (
+  accessToken: string,
+  projectId: string,
+  payload: { name: string; description: string },
+): Promise<PageResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<PageResponse>(response)
+}
+
+export const getPageVersions = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+): Promise<PageVersionResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<PageVersionResponse[]>(response)
+}
+
+export const postPageVersion = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  payload: { name: string },
+): Promise<PageVersionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<PageVersionResponse>(response)
+}
+
+export const setDefaultPageVersion = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  pageVersionId: string,
+): Promise<PageVersionResponse> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/set-default`,
+    {
+      method: 'POST',
+      headers: buildAuthHeaders(accessToken),
+    },
+  )
+
+  return parseResponse<PageVersionResponse>(response)
+}
+
+export const getResources = async (accessToken: string, projectId: string): Promise<ResourceResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<ResourceResponse[]>(response)
+}
+
+export const postResource = async (
+  accessToken: string,
+  projectId: string,
+  payload: { key: string; description: string },
+): Promise<ResourceResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<ResourceResponse>(response)
+}
+
+export const getResourceVersions = async (
+  accessToken: string,
+  projectId: string,
+  resourceId: string,
+): Promise<ResourceVersionResponse[]> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`, {
+    headers: buildAuthHeaders(accessToken),
+  })
+
+  return parseResponse<ResourceVersionResponse[]>(response)
+}
+
+export const postResourceVersion = async (
+  accessToken: string,
+  projectId: string,
+  resourceId: string,
+  payload: { name: string; value: string },
+): Promise<ResourceVersionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`, {
+    method: 'POST',
+    headers: buildAuthHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<ResourceVersionResponse>(response)
+}
+
+export const setDefaultResourceVersion = async (
+  accessToken: string,
+  projectId: string,
+  resourceId: string,
+  resourceVersionId: string,
+): Promise<ResourceVersionResponse> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions/${resourceVersionId}/set-default`,
+    {
+      method: 'POST',
+      headers: buildAuthHeaders(accessToken),
+    },
+  )
+
+  return parseResponse<ResourceVersionResponse>(response)
+}
+
+export const getResourcePages = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  pageVersionId: string,
+): Promise<ResourcePageResponse[]> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/resource-pages`,
+    {
+      headers: buildAuthHeaders(accessToken),
+    },
+  )
+
+  return parseResponse<ResourcePageResponse[]>(response)
+}
+
+export const postResourcePage = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  pageVersionId: string,
+  payload: { resourceVersionId?: string; resourceId?: string },
+): Promise<ResourcePageResponse> => {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/resource-pages`,
+    {
+      method: 'POST',
+      headers: buildAuthHeaders(accessToken),
+      body: JSON.stringify(payload),
+    },
+  )
+
+  return parseResponse<ResourcePageResponse>(response)
 }

@@ -35,6 +35,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 });
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<ProjectService>();
+builder.Services.AddScoped<NavigationService>();
 builder.Services.AddScoped<ISocialTokenValidator, GoogleSocialTokenValidator>();
 builder.Services.AddScoped<TokenService>();
 builder.Services
