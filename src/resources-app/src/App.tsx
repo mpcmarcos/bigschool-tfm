@@ -493,7 +493,8 @@ function App() {
 
     try {
       await deleteProject(session.accessToken, projectId)
-      setProjects((currentProjects) => currentProjects.filter((project) => project.id !== projectId))
+      const refreshedProjects = await getProjects(session.accessToken)
+      setProjects(refreshedProjects.filter((project) => !project.isDeleted))
       if (sharingProjectId === projectId) {
         setSharingProjectId(null)
         setProjectMembers([])
