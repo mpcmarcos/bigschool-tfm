@@ -4,7 +4,7 @@ namespace resources_api.Models
     {
         public Guid Id { get; set; }
 
-        public Guid ProjectId { get; set; }
+        public Guid PageVersionId { get; set; }
 
         public required string Name { get; set; }
 
@@ -18,7 +18,7 @@ namespace resources_api.Models
 
         public bool IsDeleted { get; set; }
 
-        public Project Project { get; set; } = null!;
+        public PageVersion PageVersion { get; set; } = null!;
 
         public ICollection<ResourceVersion> Versions { get; set; } = new List<ResourceVersion>();
     }

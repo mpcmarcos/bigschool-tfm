@@ -2,114 +2,67 @@
 
 ## 1) Objetivo del producto
 
-Construir un software para centralizar la gestión de textos de interfaz (resources), su versionado, su localización por idioma y su reutilización entre páginas/proyectos, con colaboración entre usuarios y exportación para desarrollo (JSON/XML). Cada proyecto gestiona su propio conjunto de N idiomas soportados.
+Construir un software para centralizar textos de interfaz, organizarlos por proyecto y versión de página, traducirlos por idioma y exportarlos para desarrollo en JSON o XML.
 
-Inspiración (simplificada) basada en Frontitude: colaboración centralizada, localización por idiomas y handoff técnico mediante claves/exportación.
-
----
+La primera versión prioriza una jerarquía directa y predecible. Cada recurso pertenece a una única versión de página y cada versión de recurso contiene el texto de un idioma.
 
 ## 2) Alcance funcional
 
 ### Incluido
-- Gestión de proyectos, páginas, versiones y recursos.
-- Gestión de idiomas soportados por proyecto (N idiomas por proyecto).
-- Login social y compartición de proyectos.
-- OCR al crear página desde imagen.
-- Detección de recursos duplicados y sugerencia de recurso compartido.
-- Gestión de idiomas por versión de recurso.
-- Exportación de recursos (JSON/XML) a nivel proyecto, página o recurso.
 
-### Fuera de alcance (esta versión)
+- Autenticación social y compartición de proyectos.
+- Gestión de proyectos, páginas y versiones de página.
+- Gestión de recursos dentro de una única versión de página.
+- Traducciones de cada recurso mediante versiones identificadas por idioma.
+- Catálogo inicial de idiomas fijo y extensible.
+- OCR al crear una página desde una imagen.
+- Detección de recursos duplicados dentro de una versión de página.
+- Exportación JSON/XML a nivel de proyecto, página, versión de página o recurso.
+
+### Fuera de alcance en esta versión
+
+- Asociación de un recurso con varias páginas o versiones de página.
+- Entidades `ResourcePage`, `ResourceText`, `Language` y `ProjectLanguage`.
+- Configuración de idiomas por proyecto desde la interfaz.
 - Flujos avanzados de revisión editorial.
 - Traducción automática y memoria de traducción avanzada.
 
----
-
 ## 3) Modelo de dominio y relaciones
 
-## 3.1 Entidades principales
+### 3.1 Entidades principales
 
-1. **User**
-   - Identifica al usuario autenticado por login social.
-   - Mantiene la fecha/hora de último login (`lastLoginAt`).
+1. **User**: identifica al usuario autenticado y mantiene su último acceso.
+2. **Project**: contenedor principal de páginas y miembros.
+3. **ProjectMember**: asocia usuarios con proyectos y define su rol.
+4. **Page**: pantalla o sección funcional que pertenece a un proyecto.
+5. **PageVersion**: versión de una página que contiene sus propios recursos. Cada página mantiene exactamente una versión activa por defecto.
+6. **Resource**: clave conceptual de un texto. Pertenece obligatoriamente a una única `PageVersion` y no se comparte con otras páginas.
+7. **ResourceVersion**: texto de un recurso para un idioma. Contiene `languageCode` y `value`.
 
-2. **Project**
-   - Contenedor principal.
-   - Relación: `Project 1..N Page`.
-   - Relación: `Project 1..N ProjectLanguage` (idiomas soportados por el proyecto).
-   - Acceso: creador + usuarios compartidos.
-
-3. **ProjectMember**
-   - Tabla de compartición y permisos.
-   - Relación: `Project 1..N ProjectMember`, `User 1..N ProjectMember`.
-
-4. **Page**
-   - Pantalla o sección funcional de producto.
-   - Relación: `Page 1..N PageVersion`.
-
-5. **PageVersion**
-   - Versiones de una página.
-   - Debe existir una versión `default` por página.
-   - Relación: `PageVersion 1..N Resource`.
-
-6. **Resource**
-   - Clave conceptual del texto/recurso.
-   - Puede tener múltiples versiones.
-   - Relación: `Resource N..1 PageVersion` y `Resource 1..N ResourceVersion`.
-
-7. **ResourceVersion**
-   - Variante versionada del recurso.
-   - Debe existir una versión `default` por recurso.
-   - Relación: `ResourceVersion 1..N ResourceText`.
-
-8. **Language**
-   - Idioma/localización (ej. `pt-BR`, `es-ES`, `es-MX`).
-   - Relación: `Language 1..N ResourceText`.
-
-9. **ResourceText**
-   - Texto final traducido por idioma para una versión concreta de recurso.
-   - Relación: `ResourceText N..1 ResourceVersion` y `ResourceText N..1 Language`.
-
-10. **ProjectLanguage**
-   - Asociación entre proyecto e idioma habilitado.
-   - Permite definir N idiomas por proyecto.
-   - Relación: `ProjectLanguage N..1 Project` y `ProjectLanguage N..1 Language`.
-
-11. **OCRImportJob** (soporte)
-   - Resultado de importación OCR de una imagen para propuesta de recursos detectados.
-
-## 3.2 Cardinalidades clave
+### 3.2 Cardinalidades
 
 - `Project 1..N Page`
-- `Project 1..N ProjectLanguage`
-- `Page 1..N PageVersion` (exactamente una default activa)
+- `Project 1..N ProjectMember`
+- `Page 1..N PageVersion`
 - `PageVersion 1..N Resource`
-- `Resource 1..N ResourceVersion` (exactamente una default activa)
-- `ResourceVersion 1..N ResourceText`
-- `Language 1..N ResourceText`
-- `Language 1..N ProjectLanguage`
-- Un `Project` se comparte con `User` vía `ProjectMember`.
+- `Resource 1..N ResourceVersion`
 
-## 3.3 Diagrama gráfico (Mermaid)
+### 3.3 Diagrama
 
 ```mermaid
 erDiagram
     USER ||--o{ PROJECT_MEMBER : belongs_to
     PROJECT ||--o{ PROJECT_MEMBER : has
     PROJECT ||--o{ PAGE : has
-    PROJECT ||--o{ PROJECT_LANGUAGE : supports
     PAGE ||--o{ PAGE_VERSION : has
-    PAGE_VERSION ||--o{ RESOURCE : has
-    RESOURCE ||--o{ RESOURCE_VERSION : has
-    RESOURCE_VERSION ||--o{ RESOURCE_TEXT : has
-    LANGUAGE ||--o{ PROJECT_LANGUAGE : available_in
-    LANGUAGE ||--o{ RESOURCE_TEXT : translates
+    PAGE_VERSION ||--o{ RESOURCE : contains
+    RESOURCE ||--o{ RESOURCE_VERSION : translates
 
     USER {
       uuid id
       string email
       datetime lastLoginAt
-      datetime createdAt
+      boolean isDeleted
     }
     PROJECT {
       uuid id
@@ -122,13 +75,6 @@ erDiagram
       uuid projectId
       uuid userId
       string role
-    }
-    PROJECT_LANGUAGE {
-      uuid id
-      uuid projectId
-      uuid languageId
-      boolean isDefault
-      boolean isDeleted
     }
     PAGE {
       uuid id
@@ -146,289 +92,201 @@ erDiagram
     RESOURCE {
       uuid id
       uuid pageVersionId
-      string name
-      string normalizedName
+      string key
+      string normalizedKey
       boolean isDeleted
     }
     RESOURCE_VERSION {
       uuid id
       uuid resourceId
-      string name
-      boolean isDefault
-      boolean isDeleted
-    }
-    LANGUAGE {
-      uuid id
-      string code
-      string name
-      boolean isDeleted
-    }
-    RESOURCE_TEXT {
-      uuid id
-      uuid resourceVersionId
-      uuid languageId
-      text text
+      string languageCode
+      text value
       boolean isDeleted
     }
 ```
 
----
+## 4) Catálogo de idiomas
 
-## 4) Reglas de negocio
+El catálogo inicial contiene:
 
-1. **Acceso a proyectos**
-   - Solo acceden: usuario creador y usuarios con compartición activa.
-   - En cada login exitoso, se actualiza `User.lastLoginAt`.
-
-2. **Versiones default**
-   - Cada `Page` tiene exactamente una `PageVersion` marcada `isDefault=true`.
-   - Cada `Resource` tiene exactamente una `ResourceVersion` marcada `isDefault=true`.
-
-3. **Códigos de idioma**
-   - Formato BCP-47 (ej. `es-ES`, `es-MX`, `pt-BR`).
-   - Un `(resourceVersionId, languageCode)` no puede duplicarse.
-   - Un `Project` puede tener N idiomas soportados, gestionados vía `ProjectLanguage`.
-   - Un `(projectId, languageId)` no puede duplicarse.
-   - Cada `Project` debe tener al menos un idioma activo y exactamente uno marcado como default (`isDefault=true`).
-
-4. **Detección de duplicados de resource**
-   - Al crear resource nuevo, buscar coincidencias por nombre normalizado y/o similitud.
-   - Si existe, mostrar aviso y sugerir reutilización lógica (misma clave funcional) o creación de recurso compartido.
-
-5. **Importación OCR**
-   - Al crear página desde imagen, generar propuesta de recursos detectados.
-   - Usuario confirma/edita antes de persistir definitivamente.
-
-6. **Soft delete**
-   - Entidades funcionales con `isDeleted=true` no se muestran por defecto.
-
----
-
-## 5) Identificador funcional del recurso
-
-Formato solicitado:
-
-`PageID + VersionPaginaID + ResourceID + VersionResourceID(opcional)`
+| Código | Nombre | Bandera |
+| --- | --- | --- |
+| `pt-br` | Português (Brasil) | Brasil |
+| `es-es` | Español | España |
+| `en-uk` | English (United Kingdom) | Reino Unido |
 
 Reglas:
-- Si `VersionResourceID` no existe, se omite.
-- Recomendación: usar separador estable (`:`) para evitar ambigüedad.
-  - Ejemplo con versión: `P12:PV3:R44:RV2`
-  - Ejemplo sin versión resource: `P12:PV3:R44`
 
----
+- Los códigos siguen el formato BCP-47 y se almacenan en minúsculas.
+- El backend valida los códigos contra un catálogo centralizado.
+- El frontend presenta un desplegable con bandera, código y nombre.
+- Las banderas son archivos SVG locales del frontend, no dependencias remotas.
+- El catálogo inicial no impone un máximo de tres idiomas. Se pueden añadir códigos sin modificar el modelo de datos.
+- No puede repetirse `(resourceId, languageCode)` entre versiones activas.
 
-## 6) Propiedades recomendadas por entidad
+## 5) Reglas de negocio
 
-Además de las propiedades orientativas, se añaden campos operativos mínimos para trazabilidad.
+1. **Acceso**
+   - Solo el propietario y los miembros activos pueden acceder al proyecto.
+   - Los roles con permiso de edición pueden modificar la jerarquía.
+   - Cada login correcto actualiza `User.lastLoginAt`.
+
+2. **Versiones de página**
+   - Cada página tiene exactamente una `PageVersion` activa marcada como predeterminada.
+
+3. **Pertenencia del recurso**
+   - Todo `Resource` tiene un `pageVersionId` obligatorio.
+   - El recurso solo es visible dentro de esa versión de página.
+   - No existe una operación para vincular un recurso existente a otra página.
+
+4. **Creación del recurso**
+   - Crear un recurso exige `key`, `languageCode` y `value`.
+   - La descripción es opcional.
+   - El recurso y su primera `ResourceVersion` se guardan atómicamente.
+   - Si falla cualquier validación, no se persiste ninguna entidad.
+
+5. **Versiones por idioma**
+   - `ResourceVersion` no tiene nombre libre ni estado predeterminado.
+   - El idioma se escoge en el catálogo disponible.
+   - Un recurso puede tener tantas versiones como idiomas admita el catálogo, pero solo una por idioma.
+   - Al añadir una versión, la interfaz excluye los idiomas que ya utiliza el recurso.
+
+6. **Detección de duplicados**
+   - Al crear un recurso se buscan claves normalizadas duplicadas dentro de la misma `PageVersion`.
+
+7. **Borrado lógico**
+   - Las entidades con `isDeleted=true` no aparecen en los listados.
+   - Al borrar una versión de página, sus recursos y versiones dejan de ser accesibles.
+
+8. **Consistencia jerárquica**
+   - Los identificadores de proyecto, página, versión de página y recurso deben pertenecer al mismo árbol.
+   - Una jerarquía incoherente se rechaza sin modificar datos.
+
+## 6) Propiedades por entidad
 
 ### Project
-- `id`
-- `name`
-- `description` (opcional)
-- `ownerUserId`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `name`, `description?`, `ownerUserId`, `createdAt`, `updatedAt`, `isDeleted`
 
 ### User
-- `id`
-- `email`
-- `lastLoginAt`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
-
-### ProjectLanguage
-- `id`
-- `projectId`
-- `languageId`
-- `isDefault`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `email`, `lastLoginAt`, `createdAt`, `updatedAt`, `isDeleted`
 
 ### ProjectMember
-- `id`
-- `projectId`
-- `userId`
-- `role` (`viewer|editor|admin`)
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `projectId`, `userId`, `role` (`viewer|editor|admin`), `createdAt`, `updatedAt`, `isDeleted`
 
 ### Page
-- `id`
-- `projectId`
-- `name`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `projectId`, `name`, `description?`, `createdAt`, `updatedAt`, `isDeleted`
 
 ### PageVersion
-- `id`
-- `pageId`
-- `name`
-- `versionNumber` (opcional, recomendado)
-- `isDefault`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `pageId`, `name`, `isDefault`, `createdAt`, `updatedAt`, `isDeleted`
 
 ### Resource
-- `id`
-- `pageVersionId`
-- `name`
-- `normalizedName` (para deduplicación)
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
+- `id`, `pageVersionId`, `key`, `normalizedKey`, `description?`, `createdAt`, `updatedAt`, `isDeleted`
 
 ### ResourceVersion
-- `id`
-- `resourceId`
-- `name`
-- `versionNumber` (opcional, recomendado)
-- `isDefault`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
-
-### Language
-- `id`
-- `code` (único, ej. `es-ES`)
-- `name`
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
-
-### ResourceText
-- `id`
-- `resourceVersionId`
-- `languageId`
-- `text`
-- `status` (`draft|reviewed|approved`) opcional
-- `createdAt`
-- `updatedAt`
-- `isDeleted`
-
----
+- `id`, `resourceId`, `languageCode`, `value`, `createdAt`, `updatedAt`, `isDeleted`
 
 ## 7) Funcionalidades priorizadas
 
-## P0 — Imprescindibles (MVP)
+### P0 — Imprescindibles
 
-1. **Autenticación social**
-   - Login/logout por proveedor social.
-   - Creación automática de perfil básico.
+1. Autenticación social y perfil básico.
+2. Home pública de producto.
+3. Gestión de proyectos, miembros y roles mínimos.
+4. CRUD de páginas y versiones de página, incluida la versión predeterminada.
+5. CRUD de recursos dentro de una versión de página.
+6. Creación atómica del recurso con su primera traducción.
+7. Gestión de traducciones mediante `ResourceVersion` e idioma.
+8. Detección de claves duplicadas dentro de la versión de página.
+9. Control de acceso y validación completa de la jerarquía.
 
-2. **Home pública de producto (`02-feature-home`)**
-   - Mostrar logo generado `resourceApp`.
-   - Mostrar menú superior con link a login.
-   - Mostrar carrusel de funcionalidades destacadas (inspiración Frontitude).
-   - Mostrar bloque de 10 clientes con logos ficticios.
-   - Mostrar comentarios de clientes con foto por comentario, optimizadas para web (preferiblemente WebP).
+### P1 — Alta prioridad
 
-3. **Gestión de proyectos + compartición**
-   - Crear proyecto.
-   - Compartir con usuarios.
-   - Roles mínimos (`viewer`, `editor`).
+10. Creación de página desde imagen mediante OCR y confirmación manual.
+11. Exportación JSON/XML por proyecto, página, versión de página o recurso.
+12. Búsqueda por proyecto, página, recurso e idioma.
 
-4. **Gestión jerárquica base**
-   - Crear páginas dentro de proyecto.
-   - Crear versiones de página y marcar default.
-   - Crear resources, versiones de resource y marcar default.
-   - Crear resources directamente dentro de una `PageVersion` (relación 1:N).
+### P2 — Prioridad media
 
-5. **Idiomas y textos**
-   - Alta de idiomas por código.
-   - Asignación de N idiomas soportados por proyecto.
-   - Definición de idioma default por proyecto.
-   - Gestión de `ResourceText` por `resourceVersion + idioma`.
+13. Historial y auditoría.
+14. Estados de revisión para traducciones.
 
-6. **Detección de duplicados de resource**
-   - Aviso al crear resource con sugerencia de reutilización/compartición.
+### P3 — Evolutivo
 
-7. **Control de acceso**
-   - Solo miembros del proyecto pueden listar/editar su contenido.
+15. Catálogo de idiomas administrable.
+16. Permisos granulares.
+17. Exportaciones programadas o mediante API.
 
-## P1 — Alta prioridad
+## 8) Casos de uso clave
 
-8. **Crear página desde imagen + OCR**
-   - Subida de imagen.
-   - Extracción OCR y propuesta de resources detectados.
-   - Confirmación manual antes de guardar.
+1. El usuario inicia sesión y crea un proyecto.
+2. Comparte el proyecto con otro usuario.
+3. Crea una página y una versión de página predeterminada.
+4. Entra en una versión de página y crea un recurso.
+5. Selecciona el idioma inicial y escribe el valor traducido.
+6. El sistema crea el recurso y la primera traducción atómicamente.
+7. Entra en el recurso y añade traducciones para otros idiomas disponibles.
+8. Exporta los recursos en JSON o XML.
 
-9. **Exportación JSON/XML**
-   - Exportación por:
-     - Proyecto (todos los recursos)
-     - Página (recursos de la página)
-     - Resource individual
-   - Incluir diferentes versiones en la exportación.
+## 9) Criterios de aceptación mínimos
 
-10. **Búsqueda y filtrado**
-   - Filtrar por proyecto, página, resource, versión, idioma.
-
-## P2 — Prioridad media
-
-11. **Historial y auditoría**
-    - Registro de cambios por entidad (quién/cuándo/qué).
-
-12. **Reutilización avanzada**
-    - Sugerencias de consolidación de resources equivalentes.
-
-13. **Estados de ciclo de vida**
-    - Draft/reviewed/approved para `ResourceText` o `ResourceVersion`.
-
-## P3 — Evolutivo
-
-14. **Permisos granulares avanzados**
-    - Control fino por página o por recurso.
-
-15. **Automatización de handoff**
-    - Exportaciones programadas o vía API.
-
----
-
-## 8) Casos de uso clave (resumen)
-
-1. Usuario inicia sesión social y crea proyecto.
-2. Usuario visita la home pública y accede al login desde menú superior.
-3. Comparte proyecto con otro usuario (editor).
-4. Crea página y su versión default.
-5. Sube imagen, OCR propone resources.
-6. Sistema detecta resource duplicado y sugiere reutilizar.
-7. Usuario crea/edita traducciones (`ResourceText`) por idioma.
-8. Proyecto mantiene su conjunto de N idiomas soportados (con uno default).
-9. Usuario exporta recursos en JSON/XML por proyecto/página/recurso.
-
----
-
-## 9) Criterios de aceptación mínimos (MVP)
-
-- Se puede crear un proyecto y compartirlo con al menos un usuario.
 - Un usuario no compartido no puede acceder al proyecto.
-- Un proyecto permite configurar N idiomas soportados y mantener uno default activo.
-- Cada página y resource mantiene una única versión default válida.
-- Se puede guardar texto por idioma (`ResourceText`) para una versión de resource.
-- Al crear resource duplicado, el sistema alerta y propone compartir/reutilizar.
-- Se puede exportar en JSON y XML desde proyecto, página y resource individual.
-- Se soporta creación de página mediante imagen con flujo OCR + confirmación.
-- La home pública muestra logo `resourceApp`, acceso a login, carrusel de funcionalidades, 10 clientes ficticios y testimonios con fotos optimizadas para web.
+- Una página puede mantener varias versiones y una única predeterminada activa.
+- Todo recurso pertenece a una única versión de página.
+- No existe ninguna entidad, ruta o interfaz funcional de `ResourcePage`.
+- Crear un recurso crea también su primera traducción o no crea ningún dato.
+- El idioma se selecciona mediante un desplegable con banderas locales.
+- Inicialmente están disponibles `pt-br`, `es-es` y `en-uk`.
+- No se puede crear dos veces el mismo idioma para un recurso.
+- El catálogo puede crecer sin cambiar la estructura de la base de datos.
+- Los IDs jerárquicamente incoherentes son rechazados.
 
----
+## 10) URLs del sistema
 
-## 10) Definición de URLs del sistema
+Ruta base jerárquica:
 
-Ruta base jerárquica definida para navegación funcional:
+`/projects/{projectId}/{pageId}/{pageVersionId}/{resourceId}`
 
-`/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}/{idresourcepage}`
+Niveles:
 
-Desglose por niveles:
+1. `/projects` → listado de proyectos.
+2. `/projects/{projectId}` → páginas del proyecto.
+3. `/projects/{projectId}/{pageId}` → versiones de la página.
+4. `/projects/{projectId}/{pageId}/{pageVersionId}` → recursos de la versión de página.
+5. `/projects/{projectId}/{pageId}/{pageVersionId}/{resourceId}` → traducciones del recurso.
 
-1. `/projects` -> listado de proyectos.
-2. `/projects/{idproject}` -> contexto de proyecto.
-3. `/projects/{idproject}/{idpagina}` -> contexto de página.
-4. `/projects/{idproject}/{idpagina}/{idpaginaversion}` -> contexto de versión de página.
-5. `/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}` -> contexto de recurso.
-6. `/projects/{idproject}/{idpagina}/{idpaginaversion}/{resource}/{idresourcepage}` -> detalle final del recurso dentro de la página.
+No existe un nivel adicional de asociación entre recurso y página.
+
+## 11) Contrato REST principal
+
+### Recursos
+
+- `GET|POST /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources`
+- `PUT|DELETE /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}`
+
+El `POST` recibe `key`, `description?`, `languageCode` y `value`.
+
+### Versiones de recurso por idioma
+
+- `GET|POST /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/versions`
+- `PUT|DELETE /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/versions/{resourceVersionId}`
+
+El `POST` recibe `languageCode` y `value`. No existe una operación `set-default` para `ResourceVersion`.
+
+## 12) Persistencia y migración
+
+- Se elimina la tabla de asociación entre recursos y versiones de página.
+- `Resources.ProjectId` se reemplaza por `Resources.PageVersionId` obligatorio.
+- `ResourceVersions.Name` se reemplaza por `ResourceVersions.LanguageCode`.
+- Se elimina `ResourceVersions.IsDefault`.
+- Se crea un índice único para `(ResourceId, LanguageCode)`.
+- La base de desarrollo se elimina y se recrea; no se migran los datos anteriores.
+
+## 13) Estrategia de implementación
+
+La implementación se realizará de extremo a extremo en backend y frontend mediante ciclos Red → Green → Refactor:
+
+1. Pruebas API de esquema, jerarquía, permisos, atomicidad, idiomas y duplicados.
+2. Modelo EF, contratos, servicios y controladores.
+3. Pruebas frontend de navegación y selectores de idioma.
+4. Cliente API, rutas, vistas, formularios y banderas locales.
+5. Regresión completa de API y frontend, build, lint y validación visual responsive.

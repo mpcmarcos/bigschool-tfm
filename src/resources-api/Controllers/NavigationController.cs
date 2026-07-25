@@ -224,8 +224,12 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpGet("resources")]
-        public async Task<ActionResult<IReadOnlyList<ResourceResponse>>> GetResources(Guid projectId, CancellationToken cancellationToken)
+        [HttpGet("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources")]
+        public async Task<ActionResult<IReadOnlyList<ResourceResponse>>> GetPageVersionResources(
+            Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
+            CancellationToken cancellationToken)
         {
             if (!TryGetUserId(out var userId))
             {
@@ -234,7 +238,12 @@ namespace resources_api.Controllers
 
             try
             {
-                return Ok(await _navigationService.ListResourcesAsync(userId, projectId, cancellationToken));
+                return Ok(await _navigationService.ListPageVersionResourcesAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    cancellationToken));
             }
             catch (NavigationException exception)
             {
@@ -242,9 +251,11 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpPost("resources")]
-        public async Task<ActionResult<ResourceResponse>> CreateResource(
+        [HttpPost("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources")]
+        public async Task<ActionResult<CreateResourceResponse>> CreatePageVersionResource(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             [FromBody] CreateResourceRequest request,
             CancellationToken cancellationToken)
         {
@@ -255,8 +266,17 @@ namespace resources_api.Controllers
 
             try
             {
-                var created = await _navigationService.CreateResourceAsync(userId, projectId, request, cancellationToken);
-                return Created($"/api/v1/projects/{projectId}/resources/{created.Id}", created);
+                var created = await _navigationService.CreatePageVersionResourceAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    request,
+                    cancellationToken);
+
+                return Created(
+                    $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{created.Resource.Id}",
+                    created);
             }
             catch (NavigationException exception)
             {
@@ -264,9 +284,11 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpPut("resources/{resourceId:guid}")]
+        [HttpPut("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}")]
         public async Task<ActionResult<ResourceResponse>> UpdateResource(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             [FromBody] UpdateResourceRequest request,
             CancellationToken cancellationToken)
@@ -278,7 +300,14 @@ namespace resources_api.Controllers
 
             try
             {
-                return Ok(await _navigationService.UpdateResourceAsync(userId, projectId, resourceId, request, cancellationToken));
+                return Ok(await _navigationService.UpdateResourceAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    resourceId,
+                    request,
+                    cancellationToken));
             }
             catch (NavigationException exception)
             {
@@ -286,28 +315,11 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpDelete("resources/{resourceId:guid}")]
-        public async Task<ActionResult> DeleteResource(Guid projectId, Guid resourceId, CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                await _navigationService.DeleteResourceAsync(userId, projectId, resourceId, cancellationToken);
-                return NoContent();
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpGet("resources/{resourceId:guid}/versions")]
-        public async Task<ActionResult<IReadOnlyList<ResourceVersionResponse>>> GetResourceVersions(
+        [HttpDelete("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}")]
+        public async Task<ActionResult> DeleteResource(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             CancellationToken cancellationToken)
         {
@@ -318,7 +330,14 @@ namespace resources_api.Controllers
 
             try
             {
-                return Ok(await _navigationService.ListResourceVersionsAsync(userId, projectId, resourceId, cancellationToken));
+                await _navigationService.DeleteResourceAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    resourceId,
+                    cancellationToken);
+                return NoContent();
             }
             catch (NavigationException exception)
             {
@@ -326,9 +345,40 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpPost("resources/{resourceId:guid}/versions")]
+        [HttpGet("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}/versions")]
+        public async Task<ActionResult<IReadOnlyList<ResourceVersionResponse>>> GetResourceVersions(
+            Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
+            Guid resourceId,
+            CancellationToken cancellationToken)
+        {
+            if (!TryGetUserId(out var userId))
+            {
+                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
+            }
+
+            try
+            {
+                return Ok(await _navigationService.ListResourceVersionsAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    resourceId,
+                    cancellationToken));
+            }
+            catch (NavigationException exception)
+            {
+                return BuildProblem(exception);
+            }
+        }
+
+        [HttpPost("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}/versions")]
         public async Task<ActionResult<ResourceVersionResponse>> CreateResourceVersion(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             [FromBody] CreateResourceVersionRequest request,
             CancellationToken cancellationToken)
@@ -340,8 +390,17 @@ namespace resources_api.Controllers
 
             try
             {
-                var created = await _navigationService.CreateResourceVersionAsync(userId, projectId, resourceId, request, cancellationToken);
-                return Created($"/api/v1/projects/{projectId}/resources/{resourceId}/versions/{created.Id}", created);
+                var created = await _navigationService.CreateResourceVersionAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    resourceId,
+                    request,
+                    cancellationToken);
+                return Created(
+                    $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/versions/{created.Id}",
+                    created);
             }
             catch (NavigationException exception)
             {
@@ -349,9 +408,11 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpPut("resources/{resourceId:guid}/versions/{resourceVersionId:guid}")]
+        [HttpPut("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}/versions/{resourceVersionId:guid}")]
         public async Task<ActionResult<ResourceVersionResponse>> UpdateResourceVersion(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             Guid resourceVersionId,
             [FromBody] UpdateResourceVersionRequest request,
@@ -367,6 +428,8 @@ namespace resources_api.Controllers
                 return Ok(await _navigationService.UpdateResourceVersionAsync(
                     userId,
                     projectId,
+                    pageId,
+                    pageVersionId,
                     resourceId,
                     resourceVersionId,
                     request,
@@ -378,9 +441,11 @@ namespace resources_api.Controllers
             }
         }
 
-        [HttpDelete("resources/{resourceId:guid}/versions/{resourceVersionId:guid}")]
+        [HttpDelete("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}/versions/{resourceVersionId:guid}")]
         public async Task<ActionResult> DeleteResourceVersion(
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             Guid resourceVersionId,
             CancellationToken cancellationToken)
@@ -392,151 +457,14 @@ namespace resources_api.Controllers
 
             try
             {
-                await _navigationService.DeleteResourceVersionAsync(userId, projectId, resourceId, resourceVersionId, cancellationToken);
-                return NoContent();
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpPost("resources/{resourceId:guid}/versions/{resourceVersionId:guid}/set-default")]
-        public async Task<ActionResult<ResourceVersionResponse>> SetDefaultResourceVersion(
-            Guid projectId,
-            Guid resourceId,
-            Guid resourceVersionId,
-            CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                return Ok(await _navigationService.SetDefaultResourceVersionAsync(
+                await _navigationService.DeleteResourceVersionAsync(
                     userId,
                     projectId,
+                    pageId,
+                    pageVersionId,
                     resourceId,
                     resourceVersionId,
-                    cancellationToken));
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpGet("pages/{pageId:guid}/versions/{pageVersionId:guid}/resource-pages")]
-        public async Task<ActionResult<IReadOnlyList<ResourcePageResponse>>> GetResourcePages(
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                return Ok(await _navigationService.ListResourcePagesAsync(userId, projectId, pageId, pageVersionId, cancellationToken));
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpPost("pages/{pageId:guid}/versions/{pageVersionId:guid}/resource-pages")]
-        public async Task<ActionResult<ResourcePageResponse>> CreateResourcePage(
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            [FromBody] CreateResourcePageRequest request,
-            CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                var created = await _navigationService.CreateResourcePageAsync(
-                    userId,
-                    projectId,
-                    pageId,
-                    pageVersionId,
-                    request,
                     cancellationToken);
-
-                return Created(
-                    $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resource-pages/{created.Id}",
-                    created);
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpPut("pages/{pageId:guid}/versions/{pageVersionId:guid}/resource-pages/{resourcePageId:guid}")]
-        public async Task<ActionResult<ResourcePageResponse>> UpdateResourcePage(
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            Guid resourcePageId,
-            [FromBody] UpdateResourcePageRequest request,
-            CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                return Ok(await _navigationService.UpdateResourcePageAsync(
-                    userId,
-                    projectId,
-                    pageId,
-                    pageVersionId,
-                    resourcePageId,
-                    request,
-                    cancellationToken));
-            }
-            catch (NavigationException exception)
-            {
-                return BuildProblem(exception);
-            }
-        }
-
-        [HttpDelete("pages/{pageId:guid}/versions/{pageVersionId:guid}/resource-pages/{resourcePageId:guid}")]
-        public async Task<ActionResult> DeleteResourcePage(
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            Guid resourcePageId,
-            CancellationToken cancellationToken)
-        {
-            if (!TryGetUserId(out var userId))
-            {
-                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
-            }
-
-            try
-            {
-                await _navigationService.DeleteResourcePageAsync(
-                    userId,
-                    projectId,
-                    pageId,
-                    pageVersionId,
-                    resourcePageId,
-                    cancellationToken);
-
                 return NoContent();
             }
             catch (NavigationException exception)

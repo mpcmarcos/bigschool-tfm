@@ -6,11 +6,9 @@ namespace resources_api.Models
 
         public Guid ResourceId { get; set; }
 
-        public required string Name { get; set; }
+        public required string LanguageCode { get; set; }
 
         public required string Value { get; set; }
-
-        public bool IsDefault { get; set; }
 
         public DateTime CreatedAt { get; set; }
 
@@ -19,7 +17,5 @@ namespace resources_api.Models
         public bool IsDeleted { get; set; }
 
         public Resource Resource { get; set; } = null!;
-
-        public ICollection<ResourcePage> ResourcePages { get; set; } = new List<ResourcePage>();
     }
 }

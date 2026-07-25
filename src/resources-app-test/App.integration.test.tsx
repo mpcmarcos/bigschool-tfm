@@ -600,21 +600,22 @@ describe('App Home/Login/Projects flow', () => {
       {
         id: 'resource-version-1',
         resourceId: 'resource-1',
-        name: 'rv1',
-        value: 'Hello',
-        isDefault: false,
+        languageCode: 'es-es',
+        value: 'Hola',
         createdAt: '2026-01-01T00:00:00Z',
         updatedAt: '2026-01-01T00:00:00Z',
         isDeleted: false,
       },
+    ]
+
+    const resources = [
       {
-        id: 'resource-version-2',
-        resourceId: 'resource-1',
-        name: 'rv2',
-        value: 'Hola',
-        isDefault: true,
-        createdAt: '2026-01-02T00:00:00Z',
-        updatedAt: '2026-01-02T00:00:00Z',
+        id: 'resource-1',
+        pageVersionId: 'page-version-1',
+        key: 'hero.title',
+        description: 'Hero title',
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
         isDeleted: false,
       },
     ]
@@ -654,11 +655,11 @@ describe('App Home/Login/Projects flow', () => {
         ])
       }
 
-      if (input.includes('/api/v1/projects/project-1/pages/page-1/versions') && method === 'GET') {
+      if (input.endsWith('/api/v1/projects/project-1/pages/page-1/versions') && method === 'GET') {
         return buildJsonResponse(pageVersions)
       }
 
-      if (input.includes('/api/v1/projects/project-1/pages/page-1/versions') && method === 'POST') {
+      if (input.endsWith('/api/v1/projects/project-1/pages/page-1/versions') && method === 'POST') {
         const payload = JSON.parse(String(init?.body)) as { name: string }
         const createdVersion = {
           id: 'page-version-3',
@@ -679,41 +680,41 @@ describe('App Home/Login/Projects flow', () => {
         return buildJsonResponse(pageVersions[0])
       }
 
-      if (input.includes('/pages/page-1/versions/page-version-1/resource-pages') && method === 'GET') {
-        return buildJsonResponse([
-          {
-            id: 'resource-page-1',
-            pageVersionId: 'page-version-1',
-            resourceVersionId: 'resource-version-2',
-            createdAt: '2026-01-03T00:00:00Z',
-            updatedAt: '2026-01-03T00:00:00Z',
-            isDeleted: false,
-          },
-        ])
+      if (input.endsWith('/pages/page-1/versions/page-version-1/resources') && method === 'GET') {
+        return buildJsonResponse(resources)
       }
 
-      if (input.endsWith('/api/v1/projects/project-1/resources') && method === 'GET') {
-        return buildJsonResponse([
-          {
-            id: 'resource-1',
-            projectId: 'project-1',
-            key: 'hero.title',
-            description: 'Hero title',
-            createdAt: '2026-01-01T00:00:00Z',
-            updatedAt: '2026-01-01T00:00:00Z',
-            isDeleted: false,
-          },
-        ])
+      if (input.endsWith('/pages/page-1/versions/page-version-1/resources') && method === 'POST') {
+        const payload = JSON.parse(String(init?.body)) as { key: string; description: string; languageCode: string; value: string }
+        expect(payload).toEqual({
+          key: 'footer.legal',
+          description: 'Legal footer',
+          languageCode: 'en-uk',
+          value: 'Legal notice',
+        })
+        const resource = { ...resources[0], id: 'resource-2', key: payload.key, description: payload.description }
+        resources.unshift(resource)
+        return buildJsonResponse({
+          resource,
+          resourceVersion: { ...resourceVersions[0], id: 'resource-version-2', resourceId: resource.id, languageCode: payload.languageCode, value: payload.value },
+        }, 201)
       }
 
-      if (input.includes('/api/v1/projects/project-1/resources/resource-1/versions') && method === 'GET') {
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
         return buildJsonResponse(resourceVersions)
       }
 
-      if (input.includes('/resources/resource-1/versions/resource-version-1/set-default') && method === 'POST') {
-        resourceVersions[0].isDefault = true
-        resourceVersions[1].isDefault = false
-        return buildJsonResponse(resourceVersions[0])
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'POST') {
+        const payload = JSON.parse(String(init?.body)) as { languageCode: string; value: string }
+        expect(payload).toEqual({ languageCode: 'pt-br', value: 'Olá' })
+        const createdVersion = {
+          ...resourceVersions[0],
+          id: 'resource-version-3',
+          languageCode: payload.languageCode,
+          value: payload.value,
+        }
+        resourceVersions.unshift(createdVersion)
+        return buildJsonResponse(createdVersion, 201)
       }
 
       throw new Error(`Unexpected URL: ${input} (${method})`)
@@ -746,17 +747,35 @@ describe('App Home/Login/Projects flow', () => {
     fireEvent.change(within(createVersionDialog).getByLabelText('Nombre de la versión nueva'), { target: { value: 'v3' } })
     fireEvent.click(within(createVersionDialog).getByRole('button', { name: 'Guardar versión' }))
     expect(await screen.findByRole('heading', { name: 'v3' })).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Marcar default' })[0])
+    const versionOneCard = screen.getByRole('heading', { name: 'v1' }).closest('.project-card')
+    expect(versionOneCard).not.toBeNull()
+    fireEvent.click(within(versionOneCard as HTMLElement).getByRole('button', { name: 'Marcar default' }))
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Ver recursos' })[0])
+    fireEvent.click(within(versionOneCard as HTMLElement).getByRole('button', { name: 'Ver recursos' }))
     expect(await screen.findByRole('heading', { name: 'Recursos en versión de página' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ver versiones recurso' }))
-    expect(await screen.findByRole('heading', { name: 'Versiones de recurso' })).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Marcar default' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Crear recurso' }))
+    const createResourceDialog = await screen.findByRole('dialog', { name: 'Crear recurso' })
+    fireEvent.change(within(createResourceDialog).getByLabelText('Key del recurso nuevo'), { target: { value: 'footer.legal' } })
+    fireEvent.change(within(createResourceDialog).getByLabelText('Descripción del recurso nuevo'), { target: { value: 'Legal footer' } })
+    fireEvent.change(within(createResourceDialog).getByLabelText('Idioma inicial'), { target: { value: 'en-uk' } })
+    fireEvent.change(within(createResourceDialog).getByLabelText('Valor de la traducción inicial'), { target: { value: 'Legal notice' } })
+    fireEvent.click(within(createResourceDialog).getByRole('button', { name: 'Guardar recurso' }))
+    expect(await screen.findByText('footer.legal')).toBeInTheDocument()
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Ver detalle en página' })[0])
-    expect(await screen.findByRole('heading', { name: 'Detalle recurso en página' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByText('hero.title').closest('.project-card') as HTMLElement).getByRole('button', { name: 'Ver traducciones' }))
+    expect(await screen.findByRole('heading', { name: 'Traducciones del recurso' })).toBeInTheDocument()
+    expect(screen.getByText('Hola')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Añadir traducción' }))
+    const createTranslationDialog = await screen.findByRole('dialog', { name: 'Añadir traducción' })
+    expect(within(createTranslationDialog).queryByRole('option', { name: 'Español' })).not.toBeInTheDocument()
+    fireEvent.change(within(createTranslationDialog).getByLabelText('Idioma'), { target: { value: 'pt-br' } })
+    fireEvent.change(within(createTranslationDialog).getByLabelText('Valor de la traducción'), { target: { value: 'Olá' } })
+    fireEvent.click(within(createTranslationDialog).getByRole('button', { name: 'Guardar traducción' }))
+
+    expect(await screen.findByText('Olá')).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/projects/project-1/page-1/page-version-1/resource-1')
   })
 
   it('shows hierarchy error message when backend rejects inconsistent ids', async () => {
@@ -766,15 +785,11 @@ describe('App Home/Login/Projects flow', () => {
       }
 
       const method = init?.method ?? 'GET'
-      if (input.includes('/pages/page-1/versions/page-version-1/resource-pages') && method === 'GET') {
+      if (input.endsWith('/pages/page-1/versions/page-version-1/resources') && method === 'GET') {
         return buildJsonResponse([])
       }
 
-      if (input.endsWith('/api/v1/projects/project-1/resources') && method === 'GET') {
-        return buildJsonResponse([])
-      }
-
-      if (input.includes('/resource-pages') && method === 'POST') {
+      if (input.endsWith('/pages/page-1/versions/page-version-1/resources') && method === 'POST') {
         return buildJsonResponse(
           {
             type: 'https://tools.ietf.org/html/rfc9110#section-15.5.1',
@@ -805,13 +820,15 @@ describe('App Home/Login/Projects flow', () => {
     window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1')
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Vincular recurso' }))
-    const dialog = await screen.findByRole('dialog', { name: 'Vincular recurso' })
-    fireEvent.change(within(dialog).getByLabelText('ResourceVersionId a vincular'), { target: { value: 'resource-version-x' } })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar relación' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Crear recurso' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Crear recurso' })
+    fireEvent.change(within(dialog).getByLabelText('Key del recurso nuevo'), { target: { value: 'hero.title' } })
+    fireEvent.change(within(dialog).getByLabelText('Valor de la traducción inicial'), { target: { value: 'Hola' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Guardar recurso' }))
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Page version does not belong to project.')
     })
+    expect(screen.queryByText('hero.title')).not.toBeInTheDocument()
   })
 })

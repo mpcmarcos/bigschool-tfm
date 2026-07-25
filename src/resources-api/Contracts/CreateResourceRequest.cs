@@ -10,5 +10,12 @@ namespace resources_api.Contracts
 
         [MaxLength(2000)]
         public string? Description { get; set; }
+
+        [Required]
+        [MaxLength(20)]
+        public string? LanguageCode { get; set; }
+
+        [Required]
+        public string? Value { get; set; }
     }
 }

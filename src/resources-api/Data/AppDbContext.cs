@@ -27,8 +27,6 @@ namespace resources_api.Data
 
         public DbSet<ResourceVersion> ResourceVersions => Set<ResourceVersion>();
 
-        public DbSet<ResourcePage> ResourcePages => Set<ResourcePage>();
-
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<User>(entity =>
@@ -124,48 +122,30 @@ namespace resources_api.Data
                 entity.Property(x => x.CreatedAt).IsRequired();
                 entity.Property(x => x.UpdatedAt).IsRequired();
                 entity.Property(x => x.IsDeleted).IsRequired();
-                entity.HasIndex(x => new { x.ProjectId, x.IsDeleted });
-                entity.HasIndex(x => new { x.ProjectId, x.NormalizedName });
-                entity.HasOne(x => x.Project)
+                entity.HasIndex(x => new { x.PageVersionId, x.IsDeleted });
+                entity.HasIndex(x => new { x.PageVersionId, x.NormalizedName });
+                entity.HasOne(x => x.PageVersion)
                     .WithMany(x => x.Resources)
-                    .HasForeignKey(x => x.ProjectId)
+                    .HasForeignKey(x => x.PageVersionId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
             modelBuilder.Entity<ResourceVersion>(entity =>
             {
                 entity.HasKey(x => x.Id);
-                entity.Property(x => x.Name).IsRequired().HasMaxLength(200);
+                entity.Property(x => x.LanguageCode).IsRequired().HasMaxLength(20);
                 entity.Property(x => x.Value).IsRequired();
                 entity.Property(x => x.CreatedAt).IsRequired();
                 entity.Property(x => x.UpdatedAt).IsRequired();
                 entity.Property(x => x.IsDeleted).IsRequired();
                 entity.HasIndex(x => new { x.ResourceId, x.IsDeleted });
-                entity.Property<int?>("DefaultVersionSlot")
-                    .HasComputedColumnSql("CASE WHEN IsDefault = 1 AND IsDeleted = 0 THEN 1 ELSE NULL END", stored: true);
-                entity.HasIndex("ResourceId", "DefaultVersionSlot").IsUnique();
+                entity.Property<string?>("ActiveLanguageCode")
+                    .HasMaxLength(20)
+                    .HasComputedColumnSql("CASE WHEN IsDeleted = 0 THEN LanguageCode ELSE NULL END", stored: true);
+                entity.HasIndex("ResourceId", "ActiveLanguageCode").IsUnique();
                 entity.HasOne(x => x.Resource)
                     .WithMany(x => x.Versions)
                     .HasForeignKey(x => x.ResourceId)
-                    .OnDelete(DeleteBehavior.Cascade);
-            });
-
-            modelBuilder.Entity<ResourcePage>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-                entity.Property(x => x.CreatedAt).IsRequired();
-                entity.Property(x => x.UpdatedAt).IsRequired();
-                entity.Property(x => x.IsDeleted).IsRequired();
-                entity.HasIndex(x => new { x.PageVersionId, x.ResourceVersionId }).IsUnique();
-                entity.HasIndex(x => new { x.PageVersionId, x.IsDeleted });
-                entity.HasIndex(x => new { x.ResourceVersionId, x.IsDeleted });
-                entity.HasOne(x => x.PageVersion)
-                    .WithMany(x => x.ResourcePages)
-                    .HasForeignKey(x => x.PageVersionId)
-                    .OnDelete(DeleteBehavior.Cascade);
-                entity.HasOne(x => x.ResourceVersion)
-                    .WithMany(x => x.ResourcePages)
-                    .HasForeignKey(x => x.ResourceVersionId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
 

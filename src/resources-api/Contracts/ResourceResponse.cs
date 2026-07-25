@@ -4,7 +4,7 @@ namespace resources_api.Contracts
     {
         public required string Id { get; set; }
 
-        public required string ProjectId { get; set; }
+        public required string PageVersionId { get; set; }
 
         public required string Key { get; set; }
 

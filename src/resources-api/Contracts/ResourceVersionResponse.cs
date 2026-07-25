@@ -6,11 +6,9 @@ namespace resources_api.Contracts
 
         public required string ResourceId { get; set; }
 
-        public required string Name { get; set; }
+        public required string LanguageCode { get; set; }
 
         public required string Value { get; set; }
-
-        public required bool IsDefault { get; set; }
 
         public required DateTime CreatedAt { get; set; }
 

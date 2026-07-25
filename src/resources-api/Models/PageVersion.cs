@@ -18,6 +18,6 @@ namespace resources_api.Models
 
         public Page Page { get; set; } = null!;
 
-        public ICollection<ResourcePage> ResourcePages { get; set; } = new List<ResourcePage>();
+        public ICollection<Resource> Resources { get; set; } = new List<Resource>();
     }
 }

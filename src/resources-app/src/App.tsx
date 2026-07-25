@@ -9,7 +9,6 @@ import {
   getPages,
   getProjectMembers,
   getProjects,
-  getResourcePages,
   getResources,
   getResourceVersions,
   postLogout,
@@ -18,23 +17,21 @@ import {
   postProject,
   postProjectMember,
   postResource,
-  postResourcePage,
   postResourceVersion,
   postRefresh,
   postSocialLogin,
   putPage,
   putProject,
   setDefaultPageVersion,
-  setDefaultResourceVersion,
   type AuthResponse,
   type PageResponse,
   type PageVersionResponse,
   type ProjectMemberResponse,
   type ProjectResponse,
-  type ResourcePageResponse,
   type ResourceResponse,
   type ResourceVersionResponse,
 } from './api'
+import { SUPPORTED_LANGUAGES, type SupportedLanguageCode } from './languages'
 import resourceAppLogo from './assets/resourceapp-logo.svg'
 import claraMartinPhoto from './assets/home/testimonials/clara-martin.webp'
 import diegoHerreraPhoto from './assets/home/testimonials/diego-herrera.webp'
@@ -52,7 +49,6 @@ type RouteInfo = {
   pageId: string | null
   pageVersionId: string | null
   resourceId: string | null
-  resourcePageId: string | null
 }
 
 type ClientLogoPalette = {
@@ -227,11 +223,11 @@ const normalizePath = (pathname: string): string => {
 
 const resolveRoute = (path: string): RouteInfo => {
   if (path === '/login') {
-    return { view: 'login', projectId: null, pageId: null, pageVersionId: null, resourceId: null, resourcePageId: null }
+    return { view: 'login', projectId: null, pageId: null, pageVersionId: null, resourceId: null }
   }
 
   if (path === '/') {
-    return { view: 'home', projectId: null, pageId: null, pageVersionId: null, resourceId: null, resourcePageId: null }
+    return { view: 'home', projectId: null, pageId: null, pageVersionId: null, resourceId: null }
   }
 
   const pathSegments = path.split('/').filter(Boolean)
@@ -241,7 +237,6 @@ const resolveRoute = (path: string): RouteInfo => {
     pageId: pathSegments.length > 2 ? pathSegments[2] : null,
     pageVersionId: pathSegments.length > 3 ? pathSegments[3] : null,
     resourceId: pathSegments.length > 4 ? pathSegments[4] : null,
-    resourcePageId: pathSegments.length > 5 ? pathSegments[5] : null,
   }
 }
 
@@ -285,16 +280,17 @@ function App() {
   const [isCreateResourceModalOpen, setIsCreateResourceModalOpen] = useState(false)
   const [newResourceKey, setNewResourceKey] = useState('')
   const [newResourceDescription, setNewResourceDescription] = useState('')
+  const [newResourceLanguage, setNewResourceLanguage] = useState<SupportedLanguageCode>('es-es')
+  const [newResourceValue, setNewResourceValue] = useState('')
   const [resourceVersions, setResourceVersions] = useState<ResourceVersionResponse[]>([])
   const [resourceVersionsLoading, setResourceVersionsLoading] = useState(false)
   const [isCreateResourceVersionModalOpen, setIsCreateResourceVersionModalOpen] = useState(false)
-  const [newResourceVersionName, setNewResourceVersionName] = useState('')
+  const [newResourceVersionLanguage, setNewResourceVersionLanguage] = useState<SupportedLanguageCode>('pt-br')
   const [newResourceVersionValue, setNewResourceVersionValue] = useState('')
-  const [resourcePages, setResourcePages] = useState<ResourcePageResponse[]>([])
-  const [resourcePagesLoading, setResourcePagesLoading] = useState(false)
-  const [isCreateResourcePageModalOpen, setIsCreateResourcePageModalOpen] = useState(false)
-  const [newResourcePageResourceVersionId, setNewResourcePageResourceVersionId] = useState('')
   const route = useMemo(() => resolveRoute(currentPath), [currentPath])
+  const availableLanguages = SUPPORTED_LANGUAGES.filter(
+    (language) => !resourceVersions.some((version) => version.languageCode === language.code),
+  )
 
   useEffect(() => {
     const onPopState = () => setCurrentPath(normalizePath(window.location.pathname))
@@ -428,7 +424,6 @@ function App() {
       setPageVersions([])
       setResources([])
       setResourceVersions([])
-      setResourcePages([])
       navigate('/login')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
@@ -620,7 +615,6 @@ function App() {
           const fetchedPages = await getPages(session.accessToken, projectId)
           setPages(fetchedPages.filter((page) => !page.isDeleted))
           setPageVersions([])
-          setResourcePages([])
           setResources([])
           setResourceVersions([])
           return
@@ -630,37 +624,33 @@ function App() {
           setPageVersionsLoading(true)
           const fetchedVersions = await getPageVersions(session.accessToken, projectId, pageId)
           setPageVersions(fetchedVersions.filter((version) => !version.isDeleted))
-          setResourcePages([])
           setResources([])
           setResourceVersions([])
           return
         }
 
         if (!resourceId) {
-          setResourcePagesLoading(true)
           setResourcesLoading(true)
-          const [fetchedResourcePages, fetchedResources] = await Promise.all([
-            getResourcePages(session.accessToken, projectId, pageId, pageVersionId),
-            getResources(session.accessToken, projectId),
-          ])
-          setResourcePages(fetchedResourcePages.filter((resourcePage) => !resourcePage.isDeleted))
+          const fetchedResources = await getResources(session.accessToken, projectId, pageId, pageVersionId)
           setResources(fetchedResources.filter((resource) => !resource.isDeleted))
           setResourceVersions([])
           return
         }
 
-        if (!route.resourcePageId) {
-          setResourceVersionsLoading(true)
-          const fetchedResourceVersions = await getResourceVersions(session.accessToken, projectId, resourceId)
-          setResourceVersions(fetchedResourceVersions.filter((version) => !version.isDeleted))
-          return
-        }
+        setResourceVersionsLoading(true)
+        const fetchedResourceVersions = await getResourceVersions(
+          session.accessToken,
+          projectId,
+          pageId,
+          pageVersionId,
+          resourceId,
+        )
+        setResourceVersions(fetchedResourceVersions.filter((version) => !version.isDeleted))
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : 'Unknown error')
       } finally {
         setPagesLoading(false)
         setPageVersionsLoading(false)
-        setResourcePagesLoading(false)
         setResourcesLoading(false)
         setResourceVersionsLoading(false)
       }
@@ -790,23 +780,33 @@ function App() {
   }
 
   const handleCreateResource = async () => {
-    if (!session || !route.projectId) {
+    if (!session || !route.projectId || !route.pageId || !route.pageVersionId) {
       return
     }
 
-    if (!newResourceKey.trim()) {
-      setError('La key del recurso es obligatoria.')
+    if (!newResourceKey.trim() || !newResourceValue.trim()) {
+      setError('La key y el valor inicial del recurso son obligatorios.')
       return
     }
 
     try {
-      const createdResource = await postResource(session.accessToken, route.projectId, {
-        key: newResourceKey,
-        description: newResourceDescription,
-      })
-      setResources((currentResources) => [createdResource, ...currentResources])
+      const created = await postResource(
+        session.accessToken,
+        route.projectId,
+        route.pageId,
+        route.pageVersionId,
+        {
+          key: newResourceKey,
+          description: newResourceDescription,
+          languageCode: newResourceLanguage,
+          value: newResourceValue,
+        },
+      )
+      setResources((currentResources) => [created.resource, ...currentResources])
       setNewResourceKey('')
       setNewResourceDescription('')
+      setNewResourceLanguage('es-es')
+      setNewResourceValue('')
       setIsCreateResourceModalOpen(false)
       setError('')
     } catch (requestError) {
@@ -815,70 +815,27 @@ function App() {
   }
 
   const handleCreateResourceVersion = async () => {
-    if (!session || !route.projectId || !route.resourceId) {
+    if (!session || !route.projectId || !route.pageId || !route.pageVersionId || !route.resourceId) {
       return
     }
 
-    if (!newResourceVersionName.trim() || !newResourceVersionValue.trim()) {
-      setError('Nombre y valor de versión son obligatorios.')
-      return
-    }
-
-    try {
-      const createdVersion = await postResourceVersion(session.accessToken, route.projectId, route.resourceId, {
-        name: newResourceVersionName,
-        value: newResourceVersionValue,
-      })
-      setResourceVersions((currentVersions) => [createdVersion, ...currentVersions])
-      setNewResourceVersionName('')
-      setNewResourceVersionValue('')
-      setIsCreateResourceVersionModalOpen(false)
-      setError('')
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
-    }
-  }
-
-  const handleSetDefaultResourceVersion = async (resourceVersionId: string) => {
-    if (!session || !route.projectId || !route.resourceId) {
+    if (!newResourceVersionValue.trim()) {
+      setError('El valor de la traducción es obligatorio.')
       return
     }
 
     try {
-      const updatedVersion = await setDefaultResourceVersion(
+      const createdVersion = await postResourceVersion(
         session.accessToken,
         route.projectId,
+        route.pageId,
+        route.pageVersionId,
         route.resourceId,
-        resourceVersionId,
+        { languageCode: newResourceVersionLanguage, value: newResourceVersionValue },
       )
-      setResourceVersions((currentVersions) =>
-        currentVersions.map((version) =>
-          version.id === updatedVersion.id ? updatedVersion : { ...version, isDefault: false },
-        ),
-      )
-      setError('')
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
-    }
-  }
-
-  const handleCreateResourcePage = async () => {
-    if (!session || !route.projectId || !route.pageId || !route.pageVersionId) {
-      return
-    }
-
-    if (!newResourcePageResourceVersionId.trim()) {
-      setError('Debes seleccionar una versión de recurso.')
-      return
-    }
-
-    try {
-      const createdResourcePage = await postResourcePage(session.accessToken, route.projectId, route.pageId, route.pageVersionId, {
-        resourceVersionId: newResourcePageResourceVersionId,
-      })
-      setResourcePages((currentPages) => [createdResourcePage, ...currentPages])
-      setNewResourcePageResourceVersionId('')
-      setIsCreateResourcePageModalOpen(false)
+      setResourceVersions((currentVersions) => [createdVersion, ...currentVersions])
+      setNewResourceVersionValue('')
+      setIsCreateResourceVersionModalOpen(false)
       setError('')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
@@ -1131,16 +1088,12 @@ function App() {
                 <button type="button" onClick={() => setIsCreateResourceModalOpen(true)}>
                   Crear recurso
                 </button>
-                <button type="button" onClick={() => setIsCreateResourcePageModalOpen(true)}>
-                  Vincular recurso
-                </button>
                 <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}`)}>
                   Volver a versiones
                 </button>
               </div>
             </div>
-            {(resourcePagesLoading || resourcesLoading) ? <p>Cargando recursos...</p> : null}
-            <h2>Recursos del proyecto</h2>
+            {resourcesLoading ? <p>Cargando recursos...</p> : null}
             <ul className="projects-list">
               {resources.map((resource) => (
                 <li key={resource.id} className="project-card">
@@ -1151,29 +1104,29 @@ function App() {
                       type="button"
                       onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${resource.id}`)}
                     >
-                      Ver versiones recurso
+                      Ver traducciones
                     </button>
                   </div>
                 </li>
               ))}
             </ul>
-            <h2>Vínculos de recurso en página</h2>
-            <ul className="members-list">
-              {resourcePages.map((resourcePage) => (
-                <li key={resourcePage.id}>
-                  {resourcePage.id} · version {resourcePage.resourceVersionId}
-                </li>
-              ))}
-            </ul>
           </section>
-        ) : !route.resourcePageId ? (
+        ) : (
           <section className="panel-card neon-border projects-panel">
             <div className="projects-header">
-              <h1>Versiones de recurso</h1>
+              <h1>Traducciones del recurso</h1>
               <div className="project-subpanel-actions">
-                <button type="button" onClick={() => setIsCreateResourceVersionModalOpen(true)}>
-                  Crear versión recurso
-                </button>
+                {availableLanguages.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewResourceVersionLanguage(availableLanguages[0].code)
+                      setIsCreateResourceVersionModalOpen(true)
+                    }}
+                  >
+                    Añadir traducción
+                  </button>
+                ) : null}
                 <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}`)}>
                   Volver a recursos
                 </button>
@@ -1183,37 +1136,20 @@ function App() {
             <ul className="projects-list">
               {resourceVersions.map((version) => (
                 <li key={version.id} className="project-card">
-                  <h2>
-                    {version.name}
-                    {version.isDefault ? ' · default' : ''}
-                  </h2>
-                  <p>{version.value}</p>
-                  <div className="project-actions">
-                    <button type="button" onClick={() => void handleSetDefaultResourceVersion(version.id)}>
-                      Marcar default
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${route.resourceId}/${version.id}`)}
-                    >
-                      Ver detalle en página
-                    </button>
+                  <div className="language-heading">
+                    <img
+                      src={SUPPORTED_LANGUAGES.find((language) => language.code === version.languageCode)?.flagSrc}
+                      alt=""
+                      width="32"
+                      height="24"
+                    />
+                    <h2>{SUPPORTED_LANGUAGES.find((language) => language.code === version.languageCode)?.label ?? version.languageCode}</h2>
+                    <span>{version.languageCode}</span>
                   </div>
+                  <p>{version.value}</p>
                 </li>
               ))}
             </ul>
-          </section>
-        ) : (
-          <section className="panel-card neon-border">
-            <h1>Detalle recurso en página</h1>
-            <p>Project: {route.projectId}</p>
-            <p>Page: {route.pageId}</p>
-            <p>PageVersion: {route.pageVersionId}</p>
-            <p>Resource: {route.resourceId}</p>
-            <p>ResourcePage: {route.resourcePageId}</p>
-            <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}/${route.resourceId}`)}>
-              Volver a versiones recurso
-            </button>
           </section>
         )
       ) : (
@@ -1555,6 +1491,25 @@ function App() {
                 value={newResourceDescription}
                 onChange={(event) => setNewResourceDescription(event.target.value)}
               />
+              <label htmlFor="new-resource-language">Idioma inicial</label>
+              <div className="language-select-row">
+                <img src={SUPPORTED_LANGUAGES.find((language) => language.code === newResourceLanguage)?.flagSrc} alt="" width="32" height="24" />
+                <select
+                  id="new-resource-language"
+                  aria-label="Idioma inicial"
+                  value={newResourceLanguage}
+                  onChange={(event) => setNewResourceLanguage(event.target.value as SupportedLanguageCode)}
+                >
+                  {SUPPORTED_LANGUAGES.map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
+                </select>
+              </div>
+              <label htmlFor="new-resource-value">Valor inicial</label>
+              <input
+                id="new-resource-value"
+                aria-label="Valor de la traducción inicial"
+                value={newResourceValue}
+                onChange={(event) => setNewResourceValue(event.target.value)}
+              />
             </div>
             <div className="project-subpanel-actions">
               <button type="button" onClick={() => void handleCreateResource()}>
@@ -1569,55 +1524,35 @@ function App() {
       ) : null}
 
       {isCreateResourceVersionModalOpen ? (
-        <section className="modal-backdrop" role="dialog" aria-label="Crear versión recurso" aria-modal="true">
+        <section className="modal-backdrop" role="dialog" aria-label="Añadir traducción" aria-modal="true">
           <article className="modal-card">
-            <h3>Crear versión recurso</h3>
+            <h3>Añadir traducción</h3>
             <div className="project-subpanel">
-              <label htmlFor="new-resource-version-name">Nombre</label>
-              <input
-                id="new-resource-version-name"
-                aria-label="Nombre versión recurso"
-                value={newResourceVersionName}
-                onChange={(event) => setNewResourceVersionName(event.target.value)}
-              />
+              <label htmlFor="new-resource-version-language">Idioma</label>
+              <div className="language-select-row">
+                <img src={SUPPORTED_LANGUAGES.find((language) => language.code === newResourceVersionLanguage)?.flagSrc} alt="" width="32" height="24" />
+                <select
+                  id="new-resource-version-language"
+                  aria-label="Idioma"
+                  value={newResourceVersionLanguage}
+                  onChange={(event) => setNewResourceVersionLanguage(event.target.value as SupportedLanguageCode)}
+                >
+                  {availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.label}</option>)}
+                </select>
+              </div>
               <label htmlFor="new-resource-version-value">Valor</label>
               <input
                 id="new-resource-version-value"
-                aria-label="Valor versión recurso"
+                aria-label="Valor de la traducción"
                 value={newResourceVersionValue}
                 onChange={(event) => setNewResourceVersionValue(event.target.value)}
               />
             </div>
             <div className="project-subpanel-actions">
               <button type="button" onClick={() => void handleCreateResourceVersion()}>
-                Guardar versión
+                Guardar traducción
               </button>
               <button type="button" onClick={() => setIsCreateResourceVersionModalOpen(false)}>
-                Cancelar
-              </button>
-            </div>
-          </article>
-        </section>
-      ) : null}
-
-      {isCreateResourcePageModalOpen ? (
-        <section className="modal-backdrop" role="dialog" aria-label="Vincular recurso" aria-modal="true">
-          <article className="modal-card">
-            <h3>Vincular recurso a la versión de página</h3>
-            <div className="project-subpanel">
-              <label htmlFor="new-resource-page-resource-version-id">ResourceVersionId</label>
-              <input
-                id="new-resource-page-resource-version-id"
-                aria-label="ResourceVersionId a vincular"
-                value={newResourcePageResourceVersionId}
-                onChange={(event) => setNewResourcePageResourceVersionId(event.target.value)}
-              />
-            </div>
-            <div className="project-subpanel-actions">
-              <button type="button" onClick={() => void handleCreateResourcePage()}>
-                Guardar relación
-              </button>
-              <button type="button" onClick={() => setIsCreateResourcePageModalOpen(false)}>
                 Cancelar
               </button>
             </div>

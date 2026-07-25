@@ -252,7 +252,7 @@ namespace resources_api_test
         }
 
         [Fact]
-        public async Task Navigation_Flow_CreatePagePageVersionResourceResourceVersionResourcePage_WorksAsExpected()
+        public async Task Navigation_Flow_CreatesResourceDirectlyInsidePageVersion()
         {
             var client = _factory.CreateClient();
             var ownerSession = await LoginAsync(client, "owner-nav", "owner-nav@example.com");
@@ -282,25 +282,107 @@ namespace resources_api_test
             var pageVersion = await pageVersionResponse.Content.ReadFromJsonAsync<JsonElement>();
             var pageVersionId = pageVersion.GetProperty("id").GetString()!;
 
-            // Resource
-            var resourceResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources", new { key = "hero.title", description = "Hero title" });
+            var resourceResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources",
+                new
+                {
+                    key = "hero.title",
+                    description = "Hero title",
+                    languageCode = "es-es",
+                    value = "Hola"
+                });
+
             Assert.Equal(HttpStatusCode.Created, resourceResponse.StatusCode);
-            var resource = await resourceResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var created = await resourceResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var resource = created.GetProperty("resource");
             var resourceId = resource.GetProperty("id").GetString()!;
+            var resourceVersion = created.GetProperty("resourceVersion");
 
-            // Resource Version
-            var resourceVersionResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions", new { name = "rv1", value = "Hello" });
-            Assert.Equal(HttpStatusCode.Created, resourceVersionResponse.StatusCode);
-            var resourceVersion = await resourceVersionResponse.Content.ReadFromJsonAsync<JsonElement>();
-            var resourceVersionId = resourceVersion.GetProperty("id").GetString()!;
+            Assert.Equal(pageVersionId, resource.GetProperty("pageVersionId").GetString());
+            Assert.Equal(resourceId, resourceVersion.GetProperty("resourceId").GetString());
+            Assert.Equal("es-es", resourceVersion.GetProperty("languageCode").GetString());
+            Assert.Equal("Hola", resourceVersion.GetProperty("value").GetString());
 
-            // Link ResourceVersion to PageVersion (ResourcePage)
-            var resourcePageResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resource-pages", new
-            {
-                resourceVersionId = resourceVersionId
-            });
+            var resourcesResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Get,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources");
+            var resources = await resourcesResponse.Content.ReadFromJsonAsync<JsonElement>();
 
-            Assert.True(resourcePageResponse.StatusCode == HttpStatusCode.Created || resourcePageResponse.StatusCode == HttpStatusCode.OK);
+            Assert.Equal(HttpStatusCode.OK, resourcesResponse.StatusCode);
+            Assert.Single(resources.EnumerateArray());
+            Assert.Equal(resourceId, resources[0].GetProperty("id").GetString());
+        }
+
+        [Fact]
+        public async Task ResourceLanguages_NormalizeRejectDuplicatesAndAllowRecreationAfterDelete()
+        {
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-languages", "owner-languages@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+
+            var projectResponse = await SendAuthorizedAsync(client, token, HttpMethod.Post, "/api/v1/projects", new { name = "Languages" });
+            var projectId = (await projectResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var pageResponse = await SendAuthorizedAsync(client, token, HttpMethod.Post, $"/api/v1/projects/{projectId}/pages", new { name = "Home" });
+            var pageId = (await pageResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var pageVersionResponse = await SendAuthorizedAsync(client, token, HttpMethod.Post, $"/api/v1/projects/{projectId}/pages/{pageId}/versions", new { name = "v1" });
+            var pageVersionId = (await pageVersionResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var resourceResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources",
+                new { key = "hero.title", languageCode = "es-es", value = "Hola" });
+            var resourceId = (await resourceResponse.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("resource")
+                .GetProperty("id")
+                .GetString()!;
+            var versionsUrl = $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/versions";
+
+            var portugueseResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                versionsUrl,
+                new { languageCode = "PT-BR", value = "Olá" });
+            var portuguese = await portugueseResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var portugueseId = portuguese.GetProperty("id").GetString()!;
+
+            Assert.Equal(HttpStatusCode.Created, portugueseResponse.StatusCode);
+            Assert.Equal("pt-br", portuguese.GetProperty("languageCode").GetString());
+            Assert.False(portuguese.TryGetProperty("name", out _));
+            Assert.False(portuguese.TryGetProperty("isDefault", out _));
+
+            var duplicateResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                versionsUrl,
+                new { languageCode = "pt-br", value = "Duplicado" });
+            Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
+
+            var unsupportedResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                versionsUrl,
+                new { languageCode = "fr-fr", value = "Bonjour" });
+            Assert.Equal(HttpStatusCode.BadRequest, unsupportedResponse.StatusCode);
+
+            var deleteResponse = await SendAuthorizedAsync(client, token, HttpMethod.Delete, $"{versionsUrl}/{portugueseId}");
+            Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+            var recreatedResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                versionsUrl,
+                new { languageCode = "pt-br", value = "Olá novamente" });
+            Assert.Equal(HttpStatusCode.Created, recreatedResponse.StatusCode);
         }
 
         [Fact]
@@ -339,29 +421,6 @@ namespace resources_api_test
             Assert.Equal(HttpStatusCode.OK, setDefaultV1.StatusCode);
             Assert.Equal(HttpStatusCode.OK, setDefaultV2.StatusCode);
             Assert.Equal(1, versions.EnumerateArray().Count(x => x.GetProperty("isDefault").GetBoolean()));
-
-            // Resource versions default uniqueness (per Resource)
-            var resourceResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources", new { key = "hero.title", description = "Hero title" });
-            Assert.Equal(HttpStatusCode.Created, resourceResponse.StatusCode);
-            var resource = await resourceResponse.Content.ReadFromJsonAsync<JsonElement>();
-            var resourceId = resource.GetProperty("id").GetString()!;
-
-            var rv1Response = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions", new { name = "r1", value = "A" });
-            var rv1 = await rv1Response.Content.ReadFromJsonAsync<JsonElement>();
-            var rv1Id = rv1.GetProperty("id").GetString()!;
-
-            var rv2Response = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions", new { name = "r2", value = "B" });
-            var rv2 = await rv2Response.Content.ReadFromJsonAsync<JsonElement>();
-            var rv2Id = rv2.GetProperty("id").GetString()!;
-
-            var setDefaultRv1 = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions/{rv1Id}/set-default");
-            var setDefaultRv2 = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions/{rv2Id}/set-default");
-            var rversionsResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Get, $"/api/v1/projects/{projectId}/resources/{resourceId}/versions");
-            var rversions = await rversionsResponse.Content.ReadFromJsonAsync<JsonElement>();
-
-            Assert.Equal(HttpStatusCode.OK, setDefaultRv1.StatusCode);
-            Assert.Equal(HttpStatusCode.OK, setDefaultRv2.StatusCode);
-            Assert.Equal(1, rversions.EnumerateArray().Count(x => x.GetProperty("isDefault").GetBoolean()));
         }
 
         [Fact]
@@ -385,16 +444,28 @@ namespace resources_api_test
             var pageVersionP1 = await pageVersionP1Response.Content.ReadFromJsonAsync<JsonElement>();
             var pageVersionP1Id = pageVersionP1.GetProperty("id").GetString()!;
 
-            var resourceP2Response = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{p2Id}/resources", new { key = "hero.title", description = "Hero title" });
-            var resourceP2 = await resourceP2Response.Content.ReadFromJsonAsync<JsonElement>();
-            var resourceP2Id = resourceP2.GetProperty("id").GetString()!;
+            var pageP2Response = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{p2Id}/pages", new { name = "Home P2" });
+            var pageP2Id = (await pageP2Response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var pageVersionP2Response = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{p2Id}/pages/{pageP2Id}/versions", new { name = "v1" });
+            var pageVersionP2Id = (await pageVersionP2Response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var resourceP2Response = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Post,
+                $"/api/v1/projects/{p2Id}/pages/{pageP2Id}/versions/{pageVersionP2Id}/resources",
+                new { key = "hero.title", languageCode = "es-es", value = "Hola" });
+            var resourceP2Id = (await resourceP2Response.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("resource")
+                .GetProperty("id")
+                .GetString()!;
 
-            var invalidResourcePageResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{p1Id}/pages/{pageP1Id}/versions/{pageVersionP1Id}/resource-pages", new
-            {
-                resourceId = resourceP2Id
-            });
+            var invalidHierarchyResponse = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Get,
+                $"/api/v1/projects/{p1Id}/pages/{pageP1Id}/versions/{pageVersionP1Id}/resources/{resourceP2Id}/versions");
 
-            Assert.True(invalidResourcePageResponse.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound);
+            Assert.True(invalidHierarchyResponse.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound);
         }
 
         [Fact]
@@ -413,25 +484,38 @@ namespace resources_api_test
             });
             var project = await projectResponse.Content.ReadFromJsonAsync<JsonElement>();
             var projectId = project.GetProperty("id").GetString()!;
+            var pageResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/pages", new { name = "Home" });
+            var pageId = (await pageResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+            var pageVersionResponse = await SendAuthorizedAsync(client, ownerToken, HttpMethod.Post, $"/api/v1/projects/{projectId}/pages/{pageId}/versions", new { name = "v1" });
+            var pageVersionId = (await pageVersionResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
 
             var outsiderPagesResponse = await SendAuthorizedAsync(client, outsiderToken, HttpMethod.Get, $"/api/v1/projects/{projectId}/pages");
-            var outsiderResourcesResponse = await SendAuthorizedAsync(client, outsiderToken, HttpMethod.Get, $"/api/v1/projects/{projectId}/resources");
+            var outsiderResourcesResponse = await SendAuthorizedAsync(
+                client,
+                outsiderToken,
+                HttpMethod.Get,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources");
 
             Assert.Equal(HttpStatusCode.Forbidden, outsiderPagesResponse.StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, outsiderResourcesResponse.StatusCode);
         }
 
         [Fact]
-        public void Navigation_Model_DoesNotCreateShadowResourceIdOnResourcePages()
+        public void Navigation_Model_UsesDirectPageVersionResourceHierarchy()
         {
             var options = new DbContextOptionsBuilder<AppDbContext>()
                 .UseSqlite("Data Source=:memory:")
                 .Options;
             using var context = new AppDbContext(options);
-            var resourcePageEntity = context.Model.FindEntityType(typeof(ResourcePage));
+            var resourceEntity = context.Model.FindEntityType(typeof(Resource));
+            var resourceVersionEntity = context.Model.FindEntityType(typeof(ResourceVersion));
 
-            Assert.NotNull(resourcePageEntity);
-            Assert.DoesNotContain(resourcePageEntity!.GetProperties(), property => property.Name == "ResourceId");
+            Assert.Null(context.Model.FindEntityType("resources_api.Models.ResourcePage"));
+            Assert.NotNull(resourceEntity!.FindProperty(nameof(Resource.PageVersionId)));
+            Assert.Null(resourceEntity.FindProperty("ProjectId"));
+            Assert.Null(resourceVersionEntity!.FindProperty("Name"));
+            Assert.Null(resourceVersionEntity.FindProperty("IsDefault"));
+            Assert.NotNull(resourceVersionEntity.FindProperty("LanguageCode"));
         }
 
         private static async Task<JsonElement> LoginAsync(HttpClient client, string providerUserId, string email)

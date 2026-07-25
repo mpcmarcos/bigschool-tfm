@@ -431,6 +431,39 @@
   flex-wrap: wrap;
 }
 
+.language-select-row,
+.language-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.language-select-row img,
+.language-heading img {
+  width: 32px;
+  height: 24px;
+  flex: 0 0 32px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+.language-select-row select {
+  min-width: 0;
+  width: 100%;
+}
+
+.language-heading h2 {
+  margin: 0;
+  min-width: 0;
+}
+
+.language-heading span {
+  margin-left: auto;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .members-list {
   list-style: none;
   margin: 0;
@@ -458,7 +491,10 @@
 }
 
 .modal-card {
+  box-sizing: border-box;
   width: min(560px, 100%);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 0.9rem;
   background: var(--bg-card);

@@ -184,36 +184,44 @@ namespace resources_api.Services
             return ToPageVersionResponse(version);
         }
 
-        public async Task<IReadOnlyList<ResourceResponse>> ListResourcesAsync(
+        public async Task<IReadOnlyList<ResourceResponse>> ListPageVersionResourcesAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: false, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
 
             var resources = await _dbContext.Resources
                 .AsNoTracking()
-                .Where(x => x.ProjectId == projectId && !x.IsDeleted)
+                .Where(x => x.PageVersionId == pageVersionId && !x.IsDeleted)
                 .OrderByDescending(x => x.UpdatedAt)
                 .ToListAsync(cancellationToken);
 
             return resources.Select(ToResourceResponse).ToArray();
         }
 
-        public async Task<ResourceResponse> CreateResourceAsync(
+        public async Task<CreateResourceResponse> CreatePageVersionResourceAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             CreateResourceRequest request,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            var key = RequireName(request.Key);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
 
+            var key = RequireName(request.Key);
+            var languageCode = RequireSupportedLanguage(request.LanguageCode);
+            var value = RequireValue(request.Value);
             var now = DateTime.UtcNow;
             var resource = new Resource
             {
                 Id = Guid.NewGuid(),
-                ProjectId = projectId,
+                PageVersionId = pageVersionId,
                 Name = key,
                 NormalizedName = key.ToLowerInvariant(),
                 Description = NormalizeDescription(request.Description),
@@ -221,21 +229,40 @@ namespace resources_api.Services
                 UpdatedAt = now,
                 IsDeleted = false
             };
+            var resourceVersion = new ResourceVersion
+            {
+                Id = Guid.NewGuid(),
+                ResourceId = resource.Id,
+                LanguageCode = languageCode,
+                Value = value,
+                CreatedAt = now,
+                UpdatedAt = now,
+                IsDeleted = false
+            };
 
             _dbContext.Resources.Add(resource);
+            _dbContext.ResourceVersions.Add(resourceVersion);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            return ToResourceResponse(resource);
+
+            return new CreateResourceResponse
+            {
+                Resource = ToResourceResponse(resource),
+                ResourceVersion = ToResourceVersionResponse(resourceVersion)
+            };
         }
 
         public async Task<ResourceResponse> UpdateResourceAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             UpdateResourceRequest request,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            var resource = await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            var resource = await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
 
             var key = RequireName(request.Key);
             resource.Name = key;
@@ -246,10 +273,17 @@ namespace resources_api.Services
             return ToResourceResponse(resource);
         }
 
-        public async Task DeleteResourceAsync(Guid userId, Guid projectId, Guid resourceId, CancellationToken cancellationToken)
+        public async Task DeleteResourceAsync(
+            Guid userId,
+            Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
+            Guid resourceId,
+            CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            var resource = await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            var resource = await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
 
             resource.IsDeleted = true;
             resource.UpdatedAt = DateTime.UtcNow;
@@ -259,11 +293,14 @@ namespace resources_api.Services
         public async Task<IReadOnlyList<ResourceVersionResponse>> ListResourceVersionsAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: false, cancellationToken);
-            await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
 
             var versions = await _dbContext.ResourceVersions
                 .AsNoTracking()
@@ -277,21 +314,26 @@ namespace resources_api.Services
         public async Task<ResourceVersionResponse> CreateResourceVersionAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             CreateResourceVersionRequest request,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
+
+            var languageCode = RequireSupportedLanguage(request.LanguageCode);
+            await EnsureLanguageAvailableAsync(resourceId, languageCode, exceptVersionId: null, cancellationToken);
 
             var now = DateTime.UtcNow;
             var version = new ResourceVersion
             {
                 Id = Guid.NewGuid(),
                 ResourceId = resourceId,
-                Name = RequireName(request.Name),
+                LanguageCode = languageCode,
                 Value = RequireValue(request.Value),
-                IsDefault = false,
                 CreatedAt = now,
                 UpdatedAt = now,
                 IsDeleted = false
@@ -305,16 +347,21 @@ namespace resources_api.Services
         public async Task<ResourceVersionResponse> UpdateResourceVersionAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             Guid resourceVersionId,
             UpdateResourceVersionRequest request,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
             var version = await RequireResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
 
-            version.Name = RequireName(request.Name);
+            var languageCode = RequireSupportedLanguage(request.LanguageCode);
+            await EnsureLanguageAvailableAsync(resourceId, languageCode, resourceVersionId, cancellationToken);
+            version.LanguageCode = languageCode;
             version.Value = RequireValue(request.Value);
             version.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -324,126 +371,19 @@ namespace resources_api.Services
         public async Task DeleteResourceVersionAsync(
             Guid userId,
             Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
             Guid resourceId,
             Guid resourceVersionId,
             CancellationToken cancellationToken)
         {
             await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequireResourceAsync(projectId, resourceId, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
             var version = await RequireResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
 
             version.IsDeleted = true;
-            if (version.IsDefault)
-            {
-                version.IsDefault = false;
-            }
-
             version.UpdatedAt = DateTime.UtcNow;
-            await _dbContext.SaveChangesAsync(cancellationToken);
-        }
-
-        public async Task<ResourceVersionResponse> SetDefaultResourceVersionAsync(
-            Guid userId,
-            Guid projectId,
-            Guid resourceId,
-            Guid resourceVersionId,
-            CancellationToken cancellationToken)
-        {
-            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequireResourceAsync(projectId, resourceId, cancellationToken);
-            var version = await RequireResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
-
-            await ClearDefaultResourceVersionAsync(resourceId, resourceVersionId, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            version.IsDefault = true;
-            version.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return ToResourceVersionResponse(version);
-        }
-
-        public async Task<IReadOnlyList<ResourcePageResponse>> ListResourcePagesAsync(
-            Guid userId,
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            CancellationToken cancellationToken)
-        {
-            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: false, cancellationToken);
-            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
-
-            var resourcePages = await _dbContext.ResourcePages
-                .AsNoTracking()
-                .Where(x => x.PageVersionId == pageVersionId && !x.IsDeleted)
-                .OrderByDescending(x => x.UpdatedAt)
-                .ToListAsync(cancellationToken);
-
-            return resourcePages.Select(ToResourcePageResponse).ToArray();
-        }
-
-        public async Task<ResourcePageResponse> CreateResourcePageAsync(
-            Guid userId,
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            CreateResourcePageRequest request,
-            CancellationToken cancellationToken)
-        {
-            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
-            var resourceVersionId = await ResolveResourceVersionIdAsync(projectId, request.ResourceVersionId, request.ResourceId, cancellationToken);
-
-            var now = DateTime.UtcNow;
-            var resourcePage = new ResourcePage
-            {
-                Id = Guid.NewGuid(),
-                PageVersionId = pageVersionId,
-                ResourceVersionId = resourceVersionId,
-                CreatedAt = now,
-                UpdatedAt = now,
-                IsDeleted = false
-            };
-
-            _dbContext.ResourcePages.Add(resourcePage);
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return ToResourcePageResponse(resourcePage);
-        }
-
-        public async Task<ResourcePageResponse> UpdateResourcePageAsync(
-            Guid userId,
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            Guid resourcePageId,
-            UpdateResourcePageRequest request,
-            CancellationToken cancellationToken)
-        {
-            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
-            var resourcePage = await RequireResourcePageAsync(pageVersionId, resourcePageId, cancellationToken);
-
-            var resourceVersionId = await ResolveResourceVersionIdAsync(projectId, request.ResourceVersionId, request.ResourceId, cancellationToken);
-            resourcePage.ResourceVersionId = resourceVersionId;
-            resourcePage.UpdatedAt = DateTime.UtcNow;
-
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            return ToResourcePageResponse(resourcePage);
-        }
-
-        public async Task DeleteResourcePageAsync(
-            Guid userId,
-            Guid projectId,
-            Guid pageId,
-            Guid pageVersionId,
-            Guid resourcePageId,
-            CancellationToken cancellationToken)
-        {
-            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
-            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
-            var resourcePage = await RequireResourcePageAsync(pageVersionId, resourcePageId, cancellationToken);
-
-            resourcePage.IsDeleted = true;
-            resourcePage.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
@@ -525,7 +465,7 @@ namespace resources_api.Services
             return await RequirePageVersionAsync(pageId, pageVersionId, cancellationToken);
         }
 
-        private async Task<Resource> RequireResourceAsync(Guid projectId, Guid resourceId, CancellationToken cancellationToken)
+        private async Task<Resource> RequireResourceAsync(Guid pageVersionId, Guid resourceId, CancellationToken cancellationToken)
         {
             var resource = await _dbContext.Resources.FirstOrDefaultAsync(x => x.Id == resourceId && !x.IsDeleted, cancellationToken);
             if (resource == null)
@@ -533,9 +473,9 @@ namespace resources_api.Services
                 throw new NavigationException(HttpStatusCode.NotFound, "Resource not found.");
             }
 
-            if (resource.ProjectId != projectId)
+            if (resource.PageVersionId != pageVersionId)
             {
-                throw new NavigationException(HttpStatusCode.BadRequest, "Resource does not belong to project.");
+                throw new NavigationException(HttpStatusCode.BadRequest, "Resource does not belong to page version.");
             }
 
             return resource;
@@ -562,83 +502,6 @@ namespace resources_api.Services
             return resourceVersion;
         }
 
-        private async Task<ResourcePage> RequireResourcePageAsync(
-            Guid pageVersionId,
-            Guid resourcePageId,
-            CancellationToken cancellationToken)
-        {
-            var resourcePage = await _dbContext.ResourcePages
-                .FirstOrDefaultAsync(x => x.Id == resourcePageId && !x.IsDeleted, cancellationToken);
-
-            if (resourcePage == null)
-            {
-                throw new NavigationException(HttpStatusCode.NotFound, "Resource page not found.");
-            }
-
-            if (resourcePage.PageVersionId != pageVersionId)
-            {
-                throw new NavigationException(HttpStatusCode.BadRequest, "Resource page does not belong to page version.");
-            }
-
-            return resourcePage;
-        }
-
-        private async Task<Guid> ResolveResourceVersionIdAsync(
-            Guid projectId,
-            string? resourceVersionIdRaw,
-            string? resourceIdRaw,
-            CancellationToken cancellationToken)
-        {
-            if (!string.IsNullOrWhiteSpace(resourceVersionIdRaw))
-            {
-                if (!Guid.TryParse(resourceVersionIdRaw, out var resourceVersionId))
-                {
-                    throw new NavigationException(HttpStatusCode.BadRequest, "Invalid resourceVersionId.");
-                }
-
-                var resourceVersion = await _dbContext.ResourceVersions
-                    .Include(x => x.Resource)
-                    .FirstOrDefaultAsync(x => x.Id == resourceVersionId && !x.IsDeleted, cancellationToken);
-
-                if (resourceVersion == null)
-                {
-                    throw new NavigationException(HttpStatusCode.NotFound, "Resource version not found.");
-                }
-
-                if (resourceVersion.Resource.ProjectId != projectId)
-                {
-                    throw new NavigationException(HttpStatusCode.BadRequest, "Resource version does not belong to project.");
-                }
-
-                return resourceVersion.Id;
-            }
-
-            if (string.IsNullOrWhiteSpace(resourceIdRaw))
-            {
-                throw new NavigationException(HttpStatusCode.BadRequest, "resourceVersionId or resourceId is required.");
-            }
-
-            if (!Guid.TryParse(resourceIdRaw, out var resourceId))
-            {
-                throw new NavigationException(HttpStatusCode.BadRequest, "Invalid resourceId.");
-            }
-
-            var resource = await RequireResourceAsync(projectId, resourceId, cancellationToken);
-
-            var selectedVersion = await _dbContext.ResourceVersions
-                .Where(x => x.ResourceId == resource.Id && !x.IsDeleted)
-                .OrderByDescending(x => x.IsDefault)
-                .ThenByDescending(x => x.UpdatedAt)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (selectedVersion == null)
-            {
-                throw new NavigationException(HttpStatusCode.BadRequest, "Resource has no active versions.");
-            }
-
-            return selectedVersion.Id;
-        }
-
         private async Task ClearDefaultPageVersionAsync(Guid pageId, Guid exceptVersionId, CancellationToken cancellationToken)
         {
             var defaults = await _dbContext.PageVersions
@@ -652,16 +515,21 @@ namespace resources_api.Services
             }
         }
 
-        private async Task ClearDefaultResourceVersionAsync(Guid resourceId, Guid exceptVersionId, CancellationToken cancellationToken)
+        private async Task EnsureLanguageAvailableAsync(
+            Guid resourceId,
+            string languageCode,
+            Guid? exceptVersionId,
+            CancellationToken cancellationToken)
         {
-            var defaults = await _dbContext.ResourceVersions
-                .Where(x => x.ResourceId == resourceId && !x.IsDeleted && x.IsDefault && x.Id != exceptVersionId)
-                .ToListAsync(cancellationToken);
-
-            foreach (var current in defaults)
+            var exists = await _dbContext.ResourceVersions.AnyAsync(
+                x => x.ResourceId == resourceId
+                    && !x.IsDeleted
+                    && x.LanguageCode == languageCode
+                    && x.Id != exceptVersionId,
+                cancellationToken);
+            if (exists)
             {
-                current.IsDefault = false;
-                current.UpdatedAt = DateTime.UtcNow;
+                throw new NavigationException(HttpStatusCode.Conflict, "Language already exists for this resource.");
             }
         }
 
@@ -683,6 +551,11 @@ namespace resources_api.Services
             }
 
             return value.Trim();
+        }
+
+        private static string RequireSupportedLanguage(string? value)
+        {
+            return SupportedLanguages.NormalizeAndValidate(value);
         }
 
         private static string? NormalizeDescription(string? description)
@@ -728,7 +601,7 @@ namespace resources_api.Services
             return new ResourceResponse
             {
                 Id = resource.Id.ToString(),
-                ProjectId = resource.ProjectId.ToString(),
+                PageVersionId = resource.PageVersionId.ToString(),
                 Key = resource.Name,
                 Description = resource.Description,
                 CreatedAt = resource.CreatedAt,
@@ -743,26 +616,13 @@ namespace resources_api.Services
             {
                 Id = version.Id.ToString(),
                 ResourceId = version.ResourceId.ToString(),
-                Name = version.Name,
+                LanguageCode = version.LanguageCode,
                 Value = version.Value,
-                IsDefault = version.IsDefault,
                 CreatedAt = version.CreatedAt,
                 UpdatedAt = version.UpdatedAt,
                 IsDeleted = version.IsDeleted
             };
         }
 
-        private static ResourcePageResponse ToResourcePageResponse(ResourcePage resourcePage)
-        {
-            return new ResourcePageResponse
-            {
-                Id = resourcePage.Id.ToString(),
-                PageVersionId = resourcePage.PageVersionId.ToString(),
-                ResourceVersionId = resourcePage.ResourceVersionId.ToString(),
-                CreatedAt = resourcePage.CreatedAt,
-                UpdatedAt = resourcePage.UpdatedAt,
-                IsDeleted = resourcePage.IsDeleted
-            };
-        }
     }
 }
