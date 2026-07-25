@@ -3,6 +3,7 @@ import { GoogleLogin } from '@react-oauth/google'
 import type { CredentialResponse } from '@react-oauth/google'
 import {
   configureAuthRefresh,
+  deletePage,
   deleteProject,
   getPageVersions,
   getPages,
@@ -21,6 +22,7 @@ import {
   postResourceVersion,
   postRefresh,
   postSocialLogin,
+  putPage,
   putProject,
   setDefaultPageVersion,
   setDefaultResourceVersion,
@@ -270,6 +272,10 @@ function App() {
   const [isCreatePageModalOpen, setIsCreatePageModalOpen] = useState(false)
   const [newPageName, setNewPageName] = useState('')
   const [newPageDescription, setNewPageDescription] = useState('')
+  const [editingPageId, setEditingPageId] = useState<string | null>(null)
+  const [editingPageName, setEditingPageName] = useState('')
+  const [editingPageDescription, setEditingPageDescription] = useState('')
+  const [deleteConfirmationPageId, setDeleteConfirmationPageId] = useState<string | null>(null)
   const [pageVersions, setPageVersions] = useState<PageVersionResponse[]>([])
   const [pageVersionsLoading, setPageVersionsLoading] = useState(false)
   const [isCreatePageVersionModalOpen, setIsCreatePageVersionModalOpen] = useState(false)
@@ -688,6 +694,60 @@ function App() {
     }
   }
 
+  const openEditPage = (page: PageResponse) => {
+    setEditingPageId(page.id)
+    setEditingPageName(page.name)
+    setEditingPageDescription(page.description ?? '')
+    setError('')
+  }
+
+  const cancelEditPage = () => {
+    setEditingPageId(null)
+    setEditingPageName('')
+    setEditingPageDescription('')
+  }
+
+  const handleSavePage = async (pageId: string) => {
+    if (!session || !route.projectId) {
+      return
+    }
+
+    if (!editingPageName.trim()) {
+      setError('El nombre de la página es obligatorio.')
+      return
+    }
+
+    try {
+      const updatedPage = await putPage(session.accessToken, route.projectId, pageId, {
+        name: editingPageName,
+        description: editingPageDescription,
+      })
+      setPages((currentPages) => currentPages.map((page) => (page.id === pageId ? updatedPage : page)))
+      cancelEditPage()
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const handleDeletePage = async (pageId: string) => {
+    if (!session || !route.projectId) {
+      return
+    }
+
+    try {
+      await deletePage(session.accessToken, route.projectId, pageId)
+      setPages((currentPages) => currentPages.filter((page) => page.id !== pageId))
+      setError('')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const selectedPageForDelete = deleteConfirmationPageId
+    ? pages.find((page) => page.id === deleteConfirmationPageId) ?? null
+    : null
+
   const handleSetDefaultPageVersion = async (pageVersionId: string) => {
     if (!session || !route.projectId || !route.pageId) {
       return
@@ -1018,6 +1078,12 @@ function App() {
                   <div className="project-actions">
                     <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${page.id}`)}>
                       Ver versiones
+                    </button>
+                    <button type="button" onClick={() => openEditPage(page)}>
+                      Editar
+                    </button>
+                    <button type="button" onClick={() => setDeleteConfirmationPageId(page.id)}>
+                      Borrar
                     </button>
                   </div>
                 </li>
@@ -1383,6 +1449,66 @@ function App() {
             </div>
           </article>
         </section>
+      ) : null}
+
+      {editingPageId ? (
+        <dialog className="modal-backdrop" aria-label="Editar página" open>
+          <article className="modal-card">
+            <h3>Editar página</h3>
+            <div className="project-subpanel">
+              <label htmlFor="edit-page-name">Nombre</label>
+              <input
+                id="edit-page-name"
+                aria-label="Nombre de la página"
+                value={editingPageName}
+                onChange={(event) => setEditingPageName(event.target.value)}
+              />
+              <label htmlFor="edit-page-description">Descripción</label>
+              <input
+                id="edit-page-description"
+                aria-label="Descripción de la página"
+                value={editingPageDescription}
+                onChange={(event) => setEditingPageDescription(event.target.value)}
+              />
+            </div>
+            <div className="project-subpanel-actions">
+              <button type="button" onClick={() => void handleSavePage(editingPageId)}>
+                Guardar cambios
+              </button>
+              <button type="button" onClick={cancelEditPage}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </dialog>
+      ) : null}
+
+      {deleteConfirmationPageId ? (
+        <dialog className="modal-backdrop" aria-label="Confirmar borrado de página" open>
+          <article className="modal-card">
+            <h3>Confirmar borrado</h3>
+            <p>
+              ¿Seguro que quieres borrar <strong>{selectedPageForDelete?.name ?? 'esta página'}</strong>?
+            </p>
+            <div className="project-subpanel-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  const pageIdToDelete = deleteConfirmationPageId
+                  setDeleteConfirmationPageId(null)
+                  if (pageIdToDelete) {
+                    void handleDeletePage(pageIdToDelete)
+                  }
+                }}
+              >
+                Confirmar borrado
+              </button>
+              <button type="button" onClick={() => setDeleteConfirmationPageId(null)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </dialog>
       ) : null}
 
       {isCreatePageVersionModalOpen ? (

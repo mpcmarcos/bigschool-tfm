@@ -19,7 +19,11 @@ La experiencia visual debe seguir el patrón de `03-feature-projects` (listado +
 1. **Contexto Proyecto** (`/projects/{projectId}`)
    - Listado de páginas del proyecto.
    - Acción principal: **Ver versiones** de cada página.
-   - Acción crear/editar/borrar lógico de página.
+   - Acción **Crear página** mediante modal con nombre y descripción.
+   - Acción **Editar** en cada página mediante modal con nombre y descripción precargados; el nombre es obligatorio.
+   - Acción **Borrar** en cada página mediante confirmación explícita antes del borrado lógico.
+   - Tras editar, el listado muestra los datos actualizados sin abandonar el contexto del proyecto.
+   - Tras borrar, la página deja de aparecer en el listado visible sin abandonar el contexto del proyecto.
 
 2. **Contexto Página** (`/projects/{projectId}/{pageId}`)
    - Listado de versiones de la página.
@@ -131,6 +135,8 @@ Interpretación por niveles:
 ## 7) Criterios de aceptación
 
 - Desde un proyecto se pueden listar, crear, editar y borrar lógicamente páginas.
+- La edición de página exige un nombre no vacío y conserva la página en el listado con sus datos actualizados.
+- El borrado de página requiere confirmación y retira la página borrada del listado visible.
 - Desde una página se pueden listar, crear, editar, borrar y definir versiones por defecto.
 - Desde recurso se pueden listar, crear, editar, borrar y definir versiones por defecto.
 - Desde versión de página se pueden crear recursos asociados (`ResourcePage`) y listarlos.

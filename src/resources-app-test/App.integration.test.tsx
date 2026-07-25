@@ -486,6 +486,94 @@ describe('App Home/Login/Projects flow', () => {
     })
   })
 
+  it('edits and deletes a page from the project page list', async () => {
+    let updateCalls = 0
+    const page = {
+      id: 'page-1',
+      projectId: 'project-1',
+      name: 'Página inicial',
+      description: 'Descripción inicial',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      isDeleted: false,
+    }
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.endsWith('/api/v1/projects/project-1/pages') && method === 'GET') {
+        return buildJsonResponse([page])
+      }
+
+      if (input.endsWith('/api/v1/projects/project-1/pages/page-1') && method === 'PUT') {
+        updateCalls += 1
+        const payload = JSON.parse(String(init?.body)) as { name: string; description: string }
+        expect(payload).toEqual({ name: 'Página editada', description: 'Descripción editada' })
+        Object.assign(page, payload, { updatedAt: '2026-01-02T00:00:00Z' })
+        return buildJsonResponse(page)
+      }
+
+      if (input.endsWith('/api/v1/projects/project-1/pages/page-1') && method === 'DELETE') {
+        page.isDeleted = true
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-page-actions',
+        refreshToken: 'refresh-token-page-actions',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-page-actions',
+          email: 'pages@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+    window.history.pushState({}, '', '/projects/project-1')
+    render(<App />)
+
+    const pageCard = (await screen.findByText('Página inicial')).closest('.project-card')
+    expect(pageCard).not.toBeNull()
+    fireEvent.click(within(pageCard as HTMLElement).getByRole('button', { name: 'Editar' }))
+
+    const editDialog = screen.getByRole('dialog', { name: 'Editar página' })
+  fireEvent.change(within(editDialog).getByLabelText('Nombre de la página'), { target: { value: '  ' } })
+  fireEvent.click(within(editDialog).getByRole('button', { name: 'Guardar cambios' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('El nombre de la página es obligatorio.')
+  expect(updateCalls).toBe(0)
+
+    fireEvent.change(within(editDialog).getByLabelText('Nombre de la página'), { target: { value: 'Página editada' } })
+    fireEvent.change(within(editDialog).getByLabelText('Descripción de la página'), {
+      target: { value: 'Descripción editada' },
+    })
+    fireEvent.click(within(editDialog).getByRole('button', { name: 'Guardar cambios' }))
+
+    expect(await screen.findByText('Página editada')).toBeInTheDocument()
+    expect(screen.getByText('Descripción editada')).toBeInTheDocument()
+    expect(updateCalls).toBe(1)
+
+    const editedPageCard = screen.getByText('Página editada').closest('.project-card')
+    expect(editedPageCard).not.toBeNull()
+    fireEvent.click(within(editedPageCard as HTMLElement).getByRole('button', { name: 'Borrar' }))
+
+    const deleteDialog = screen.getByRole('dialog', { name: 'Confirmar borrado de página' })
+    expect(within(deleteDialog).getByText('Página editada')).toBeInTheDocument()
+    fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Confirmar borrado' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Página editada')).not.toBeInTheDocument()
+    })
+  })
+
   it('navigates across hierarchy levels from project to resource detail', async () => {
     const pageVersions = [
       {

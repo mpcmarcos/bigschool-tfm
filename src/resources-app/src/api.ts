@@ -305,6 +305,30 @@ export const postPage = async (
   return parseResponse<PageResponse>(response)
 }
 
+export const putPage = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  payload: { name: string; description: string },
+): Promise<PageResponse> => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}`, accessToken, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+
+  return parseResponse<PageResponse>(response)
+}
+
+export const deletePage = async (accessToken: string, projectId: string, pageId: string): Promise<void> => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}`, accessToken, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    await parseResponse<unknown>(response)
+  }
+}
+
 export const getPageVersions = async (
   accessToken: string,
   projectId: string,
