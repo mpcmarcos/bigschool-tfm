@@ -100,6 +100,16 @@ type ProblemDetails = {
   title?: string
 }
 
+export type AuthRefreshHandler = (failedAccessToken: string) => Promise<string | null>
+
+let authRefreshHandler: AuthRefreshHandler | null = null
+let pendingRefresh: Promise<string | null> | null = null
+
+export const configureAuthRefresh = (handler: AuthRefreshHandler | null): void => {
+  authRefreshHandler = handler
+  pendingRefresh = null
+}
+
 const parseResponse = async <T>(response: Response): Promise<T> => {
   if (!response.ok) {
     const contentType = response.headers.get('content-type') ?? ''
@@ -145,6 +155,18 @@ export const postSocialLogin = async (provider: string, idToken: string): Promis
   return parseResponse<AuthResponse>(response)
 }
 
+export const postRefresh = async (refreshToken: string): Promise<AuthResponse> => {
+  const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ refreshToken }),
+  })
+
+  return parseResponse<AuthResponse>(response)
+}
+
 export const postLogout = async (refreshToken: string): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
     method: 'POST',
@@ -164,10 +186,45 @@ const buildAuthHeaders = (accessToken: string): Record<string, string> => ({
   Authorization: `Bearer ${accessToken}`,
 })
 
-export const getProjects = async (accessToken: string): Promise<ProjectResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects`, {
+const refreshAccessToken = (failedAccessToken: string): Promise<string | null> => {
+  if (!authRefreshHandler) {
+    return Promise.resolve(null)
+  }
+
+  pendingRefresh ??= authRefreshHandler(failedAccessToken).finally(() => {
+    pendingRefresh = null
+  })
+
+  return pendingRefresh
+}
+
+const fetchWithAuth = async (
+  url: string,
+  accessToken: string,
+  init?: Omit<RequestInit, 'headers'>,
+): Promise<Response> => {
+  const response = await fetch(url, {
+    ...init,
     headers: buildAuthHeaders(accessToken),
   })
+
+  if (response.status !== 401) {
+    return response
+  }
+
+  const refreshedAccessToken = await refreshAccessToken(accessToken)
+  if (!refreshedAccessToken) {
+    return response
+  }
+
+  return fetch(url, {
+    ...init,
+    headers: buildAuthHeaders(refreshedAccessToken),
+  })
+}
+
+export const getProjects = async (accessToken: string): Promise<ProjectResponse[]> => {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects`, accessToken)
 
   return parseResponse<ProjectResponse[]>(response)
 }
@@ -176,9 +233,8 @@ export const postProject = async (
   accessToken: string,
   payload: { name: string; description: string },
 ): Promise<ProjectResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects`, accessToken, {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
   })
 
@@ -190,9 +246,8 @@ export const putProject = async (
   projectId: string,
   payload: { name: string; description: string },
 ): Promise<ProjectResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}`, accessToken, {
     method: 'PUT',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
   })
 
@@ -200,9 +255,8 @@ export const putProject = async (
 }
 
 export const deleteProject = async (accessToken: string, projectId: string): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}`, accessToken, {
     method: 'DELETE',
-    headers: buildAuthHeaders(accessToken),
   })
 
   if (!response.ok) {
@@ -214,9 +268,7 @@ export const getProjectMembers = async (
   accessToken: string,
   projectId: string,
 ): Promise<ProjectMemberResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, {
-    headers: buildAuthHeaders(accessToken),
-  })
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, accessToken)
 
   return parseResponse<ProjectMemberResponse[]>(response)
 }
@@ -226,9 +278,8 @@ export const postProjectMember = async (
   projectId: string,
   payload: { email: string; role: string },
 ): Promise<ProjectMemberResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/members`, accessToken, {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
   })
 
@@ -236,9 +287,7 @@ export const postProjectMember = async (
 }
 
 export const getPages = async (accessToken: string, projectId: string): Promise<PageResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, {
-    headers: buildAuthHeaders(accessToken),
-  })
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, accessToken)
 
   return parseResponse<PageResponse[]>(response)
 }
@@ -248,9 +297,8 @@ export const postPage = async (
   projectId: string,
   payload: { name: string; description: string },
 ): Promise<PageResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/pages`, accessToken, {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
   })
 
@@ -262,9 +310,10 @@ export const getPageVersions = async (
   projectId: string,
   pageId: string,
 ): Promise<PageVersionResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`, {
-    headers: buildAuthHeaders(accessToken),
-  })
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`,
+    accessToken,
+  )
 
   return parseResponse<PageVersionResponse[]>(response)
 }
@@ -275,11 +324,14 @@ export const postPageVersion = async (
   pageId: string,
   payload: { name: string },
 ): Promise<PageVersionResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`, {
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions`,
+    accessToken,
+    {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
-  })
+    },
+  )
 
   return parseResponse<PageVersionResponse>(response)
 }
@@ -290,11 +342,11 @@ export const setDefaultPageVersion = async (
   pageId: string,
   pageVersionId: string,
 ): Promise<PageVersionResponse> => {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/set-default`,
+    accessToken,
     {
       method: 'POST',
-      headers: buildAuthHeaders(accessToken),
     },
   )
 
@@ -302,9 +354,7 @@ export const setDefaultPageVersion = async (
 }
 
 export const getResources = async (accessToken: string, projectId: string): Promise<ResourceResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, {
-    headers: buildAuthHeaders(accessToken),
-  })
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, accessToken)
 
   return parseResponse<ResourceResponse[]>(response)
 }
@@ -314,9 +364,8 @@ export const postResource = async (
   projectId: string,
   payload: { key: string; description: string },
 ): Promise<ResourceResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, {
+  const response = await fetchWithAuth(`${API_BASE_URL}/api/v1/projects/${projectId}/resources`, accessToken, {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
   })
 
@@ -328,9 +377,10 @@ export const getResourceVersions = async (
   projectId: string,
   resourceId: string,
 ): Promise<ResourceVersionResponse[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`, {
-    headers: buildAuthHeaders(accessToken),
-  })
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`,
+    accessToken,
+  )
 
   return parseResponse<ResourceVersionResponse[]>(response)
 }
@@ -341,11 +391,14 @@ export const postResourceVersion = async (
   resourceId: string,
   payload: { name: string; value: string },
 ): Promise<ResourceVersionResponse> => {
-  const response = await fetch(`${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`, {
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions`,
+    accessToken,
+    {
     method: 'POST',
-    headers: buildAuthHeaders(accessToken),
     body: JSON.stringify(payload),
-  })
+    },
+  )
 
   return parseResponse<ResourceVersionResponse>(response)
 }
@@ -356,11 +409,11 @@ export const setDefaultResourceVersion = async (
   resourceId: string,
   resourceVersionId: string,
 ): Promise<ResourceVersionResponse> => {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/projects/${projectId}/resources/${resourceId}/versions/${resourceVersionId}/set-default`,
+    accessToken,
     {
       method: 'POST',
-      headers: buildAuthHeaders(accessToken),
     },
   )
 
@@ -373,11 +426,9 @@ export const getResourcePages = async (
   pageId: string,
   pageVersionId: string,
 ): Promise<ResourcePageResponse[]> => {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/resource-pages`,
-    {
-      headers: buildAuthHeaders(accessToken),
-    },
+    accessToken,
   )
 
   return parseResponse<ResourcePageResponse[]>(response)
@@ -390,11 +441,11 @@ export const postResourcePage = async (
   pageVersionId: string,
   payload: { resourceVersionId?: string; resourceId?: string },
 ): Promise<ResourcePageResponse> => {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/resource-pages`,
+    accessToken,
     {
       method: 'POST',
-      headers: buildAuthHeaders(accessToken),
       body: JSON.stringify(payload),
     },
   )

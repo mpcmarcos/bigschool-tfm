@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { GoogleLogin } from '@react-oauth/google'
 import type { CredentialResponse } from '@react-oauth/google'
 import {
+  configureAuthRefresh,
   deleteProject,
   getPageVersions,
   getPages,
@@ -18,6 +19,7 @@ import {
   postResource,
   postResourcePage,
   postResourceVersion,
+  postRefresh,
   postSocialLogin,
   putProject,
   setDefaultPageVersion,
@@ -243,6 +245,7 @@ const resolveRoute = (path: string): RouteInfo => {
 
 function App() {
   const [session, setSession] = useState<AuthResponse | null>(() => readStoredSession())
+  const sessionRef = useRef(session)
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme())
   const [pendingSection, setPendingSection] = useState<HomeSectionId | null>(null)
   const [currentPath, setCurrentPath] = useState(normalizePath(window.location.pathname))
@@ -297,6 +300,38 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem(THEME_STORAGE_KEY, theme)
   }, [theme])
+
+  useEffect(() => {
+    sessionRef.current = session
+  }, [session])
+
+  useEffect(() => {
+    configureAuthRefresh(async (failedAccessToken) => {
+      const currentSession = sessionRef.current
+      if (!currentSession) {
+        return null
+      }
+
+      if (currentSession.accessToken !== failedAccessToken) {
+        return currentSession.accessToken
+      }
+
+      try {
+        const refreshedSession = await postRefresh(currentSession.refreshToken)
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(refreshedSession))
+        sessionRef.current = refreshedSession
+        setSession(refreshedSession)
+        return refreshedSession.accessToken
+      } catch {
+        localStorage.removeItem(SESSION_STORAGE_KEY)
+        sessionRef.current = null
+        setSession(null)
+        return null
+      }
+    })
+
+    return () => configureAuthRefresh(null)
+  }, [])
 
   useEffect(() => {
     if (route.view === 'projects' && !session) {

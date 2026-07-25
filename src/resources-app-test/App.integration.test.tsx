@@ -91,6 +91,116 @@ describe('App Home/Login/Projects flow', () => {
     })
   })
 
+  it('refreshes an expired access token and retries the authenticated request', async () => {
+    const projectAuthorizations: string[] = []
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      if (input.endsWith('/api/v1/projects')) {
+        projectAuthorizations.push(new Headers(init?.headers).get('Authorization') ?? '')
+        if (projectAuthorizations.length === 1) {
+          return buildJsonResponse({ title: 'Unauthorized', detail: 'Expired access token.' }, 401)
+        }
+
+        return buildJsonResponse([
+          {
+            id: 'project-refreshed',
+            name: 'Proyecto renovado',
+            description: 'Sesión renovada',
+            ownerUserId: 'user-refresh',
+            ownerEmail: 'refresh@example.com',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.endsWith('/api/v1/auth/refresh') && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ refreshToken: 'refresh-token-old' })
+        return buildJsonResponse({
+          accessToken: 'access-token-new',
+          refreshToken: 'refresh-token-new',
+          tokenType: 'Bearer',
+          expiresIn: 900,
+          user: {
+            id: 'user-refresh',
+            email: 'refresh@example.com',
+            lastLoginAt: '2026-01-01T00:00:00Z',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected URL: ${input}`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-old',
+        refreshToken: 'refresh-token-old',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-refresh',
+          email: 'refresh@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+    window.history.pushState({}, '', '/projects')
+
+    render(<App />)
+
+    expect(await screen.findByText('Proyecto renovado')).toBeInTheDocument()
+    expect(projectAuthorizations).toContain('Bearer access-token-new')
+    expect(JSON.parse(localStorage.getItem('resources-auth-session') ?? '{}')).toMatchObject({
+      accessToken: 'access-token-new',
+      refreshToken: 'refresh-token-new',
+    })
+  })
+
+  it('returns to login when token refresh fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      if (typeof input === 'string' && input.endsWith('/api/v1/projects')) {
+        return buildJsonResponse({ title: 'Unauthorized', detail: 'Expired access token.' }, 401)
+      }
+
+      if (typeof input === 'string' && input.endsWith('/api/v1/auth/refresh') && init?.method === 'POST') {
+        return buildJsonResponse({ title: 'Unauthorized', detail: 'Invalid refresh token.' }, 401)
+      }
+
+      throw new Error(`Unexpected URL: ${String(input)}`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'expired-access-token',
+        refreshToken: 'invalid-refresh-token',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-expired',
+          email: 'expired@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+    window.history.pushState({}, '', '/projects')
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Iniciar sesión' })).toBeInTheDocument()
+      expect(window.location.pathname).toBe('/login')
+    })
+    expect(localStorage.getItem('resources-auth-session')).toBeNull()
+  })
+
   it('renders projects for authenticated user and allows logout', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const method = init?.method ?? 'GET'
