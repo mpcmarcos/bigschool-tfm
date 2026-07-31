@@ -473,6 +473,39 @@ namespace resources_api.Controllers
             }
         }
 
+        [HttpPost("pages/{pageId:guid}/versions/{pageVersionId:guid}/resources/{resourceId:guid}/automatic-translations")]
+        public async Task<ActionResult<AutomaticTranslationsResponse>> GenerateAutomaticTranslations(
+            Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
+            Guid resourceId,
+            [FromBody] GenerateAutomaticTranslationsRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!TryGetUserId(out var userId))
+            {
+                return BuildProblem(new NavigationException(HttpStatusCode.Unauthorized, "User is not authenticated."));
+            }
+
+            try
+            {
+                var created = await _navigationService.GenerateAutomaticTranslationsAsync(
+                    userId,
+                    projectId,
+                    pageId,
+                    pageVersionId,
+                    resourceId,
+                    request,
+                    cancellationToken);
+
+                return StatusCode(StatusCodes.Status201Created, created);
+            }
+            catch (NavigationException exception)
+            {
+                return BuildProblem(exception);
+            }
+        }
+
         private bool TryGetUserId(out Guid userId)
         {
             var userIdValue = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
@@ -493,6 +526,10 @@ namespace resources_api.Controllers
                     StatusCodes.Status401Unauthorized => "https://tools.ietf.org/html/rfc9110#section-15.5.2",
                     StatusCodes.Status403Forbidden => "https://tools.ietf.org/html/rfc9110#section-15.5.4",
                     StatusCodes.Status404NotFound => "https://tools.ietf.org/html/rfc9110#section-15.5.5",
+                    StatusCodes.Status409Conflict => "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+                    StatusCodes.Status422UnprocessableEntity => "https://tools.ietf.org/html/rfc9110#section-15.5.21",
+                    StatusCodes.Status502BadGateway => "https://tools.ietf.org/html/rfc9110#section-15.6.3",
+                    StatusCodes.Status503ServiceUnavailable => "https://tools.ietf.org/html/rfc9110#section-15.6.4",
                     _ => "about:blank"
                 });
         }

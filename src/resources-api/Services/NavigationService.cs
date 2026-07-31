@@ -9,10 +9,14 @@ namespace resources_api.Services
     public class NavigationService
     {
         private readonly AppDbContext _dbContext;
+        private readonly IAutomaticTranslationClient _automaticTranslationClient;
 
-        public NavigationService(AppDbContext dbContext)
+        public NavigationService(
+            AppDbContext dbContext,
+            IAutomaticTranslationClient automaticTranslationClient)
         {
             _dbContext = dbContext;
+            _automaticTranslationClient = automaticTranslationClient;
         }
 
         public async Task<IReadOnlyList<PageResponse>> ListPagesAsync(Guid userId, Guid projectId, CancellationToken cancellationToken)
@@ -387,6 +391,127 @@ namespace resources_api.Services
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        public async Task<AutomaticTranslationsResponse> GenerateAutomaticTranslationsAsync(
+            Guid userId,
+            Guid projectId,
+            Guid pageId,
+            Guid pageVersionId,
+            Guid resourceId,
+            GenerateAutomaticTranslationsRequest request,
+            CancellationToken cancellationToken)
+        {
+            await RequireProjectAccessAsync(userId, projectId, requiresManagePermission: true, cancellationToken);
+            await RequirePageVersionFromHierarchyAsync(projectId, pageId, pageVersionId, cancellationToken);
+            await RequireResourceAsync(pageVersionId, resourceId, cancellationToken);
+
+            var sourceLanguageCode = SupportedLanguages.NormalizeAndValidate(request.SourceLanguageCode);
+
+            var sourceVersion = await _dbContext.ResourceVersions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.ResourceId == resourceId
+                        && !x.IsDeleted
+                        && x.LanguageCode == sourceLanguageCode,
+                    cancellationToken);
+
+            if (sourceVersion is null)
+            {
+                throw new NavigationException(HttpStatusCode.BadRequest, "Source language translation does not exist for this resource.");
+            }
+
+            var activeLanguageCodes = await _dbContext.ResourceVersions
+                .AsNoTracking()
+                .Where(x => x.ResourceId == resourceId && !x.IsDeleted)
+                .Select(x => x.LanguageCode)
+                .ToListAsync(cancellationToken);
+
+            var activeLanguageSet = new HashSet<string>(activeLanguageCodes, StringComparer.OrdinalIgnoreCase);
+            var targets = SupportedLanguages.All
+                .Where(languageCode => !activeLanguageSet.Contains(languageCode))
+                .ToArray();
+
+            if (targets.Length == 0)
+            {
+                throw new NavigationException(HttpStatusCode.BadRequest, "No pending target languages for automatic translation.");
+            }
+
+            IReadOnlyList<GeneratedTranslation> providerResult;
+            try
+            {
+                providerResult = await _automaticTranslationClient.GenerateAsync(
+                    new AutomaticTranslationInput(sourceLanguageCode, sourceVersion.Value, targets),
+                    cancellationToken);
+            }
+            catch (AutomaticTranslationProviderException exception)
+            {
+                if (exception.Failure == TranslationProviderFailure.InvalidResponse)
+                {
+                    throw new NavigationException(HttpStatusCode.BadGateway, "The translation provider returned an invalid response.");
+                }
+
+                throw new NavigationException(HttpStatusCode.ServiceUnavailable, "The translation provider is temporarily unavailable.");
+            }
+
+            var generatedByLanguage = ValidateGeneratedTranslations(providerResult, targets);
+            var now = DateTime.UtcNow;
+            var newVersions = new List<ResourceVersion>(targets.Length);
+
+            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+            var activeLanguageCodesAfterProvider = await _dbContext.ResourceVersions
+                .Where(x => x.ResourceId == resourceId && !x.IsDeleted)
+                .Select(x => x.LanguageCode)
+                .ToListAsync(cancellationToken);
+
+            var activeLanguageSetAfterProvider = new HashSet<string>(activeLanguageCodesAfterProvider, StringComparer.OrdinalIgnoreCase);
+            if (!activeLanguageSetAfterProvider.SetEquals(activeLanguageSet)
+                || activeLanguageSetAfterProvider.Count != activeLanguageSet.Count)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw new NavigationException(HttpStatusCode.Conflict, "Resource translations changed during automatic translation generation.");
+            }
+
+            try
+            {
+                foreach (var target in targets)
+                {
+                    var version = new ResourceVersion
+                    {
+                        Id = Guid.NewGuid(),
+                        ResourceId = resourceId,
+                        LanguageCode = target,
+                        Value = generatedByLanguage[target],
+                        CreatedAt = now,
+                        UpdatedAt = now,
+                        IsDeleted = false
+                    };
+
+                    newVersions.Add(version);
+                }
+
+                _dbContext.ResourceVersions.AddRange(newVersions);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                foreach (var newVersion in newVersions)
+                {
+                    _dbContext.Entry(newVersion).State = EntityState.Detached;
+                }
+
+                throw new NavigationException(HttpStatusCode.Conflict, "Automatic translations could not be saved due to a concurrent update.");
+            }
+
+            return new AutomaticTranslationsResponse
+            {
+                Translations = newVersions
+                    .Select(ToResourceVersionResponse)
+                    .ToArray()
+            };
+        }
+
         private async Task<Project> RequireProjectAccessAsync(
             Guid userId,
             Guid projectId,
@@ -551,6 +676,59 @@ namespace resources_api.Services
             }
 
             return value.Trim();
+        }
+
+        private static string RequireGeneratedValue(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response contains an empty value.");
+            }
+
+            return value.Trim();
+        }
+
+        private static Dictionary<string, string> ValidateGeneratedTranslations(
+            IReadOnlyList<GeneratedTranslation> generatedTranslations,
+            IReadOnlyList<string> targets)
+        {
+            if (generatedTranslations.Count != targets.Count)
+            {
+                throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response does not match requested target languages.");
+            }
+
+            var expected = new HashSet<string>(targets, StringComparer.OrdinalIgnoreCase);
+            var generatedByLanguage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var generatedTranslation in generatedTranslations)
+            {
+                string normalizedLanguageCode;
+                try
+                {
+                    normalizedLanguageCode = SupportedLanguages.NormalizeAndValidate(generatedTranslation.LanguageCode);
+                }
+                catch (NavigationException)
+                {
+                    throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response does not match requested target languages.");
+                }
+
+                if (!expected.Contains(normalizedLanguageCode))
+                {
+                    throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response does not match requested target languages.");
+                }
+
+                if (!generatedByLanguage.TryAdd(normalizedLanguageCode, RequireGeneratedValue(generatedTranslation.Value)))
+                {
+                    throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response does not match requested target languages.");
+                }
+            }
+
+            if (generatedByLanguage.Count != expected.Count)
+            {
+                throw new NavigationException(HttpStatusCode.UnprocessableEntity, "Automatic translations response does not match requested target languages.");
+            }
+
+            return generatedByLanguage;
         }
 
         private static string RequireSupportedLanguage(string? value)

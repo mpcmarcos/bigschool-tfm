@@ -90,6 +90,10 @@ export type CreateResourceResponse = {
   resourceVersion: ResourceVersionResponse
 }
 
+export type AutomaticTranslationsResponse = {
+  translations: ResourceVersionResponse[]
+}
+
 type ProblemDetails = {
   detail?: string
   title?: string
@@ -438,4 +442,24 @@ export const postResourceVersion = async (
   )
 
   return parseResponse<ResourceVersionResponse>(response)
+}
+
+export const postAutomaticTranslations = async (
+  accessToken: string,
+  projectId: string,
+  pageId: string,
+  pageVersionId: string,
+  resourceId: string,
+  sourceLanguageCode: string,
+): Promise<AutomaticTranslationsResponse> => {
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/api/v1/projects/${projectId}/pages/${pageId}/versions/${pageVersionId}/resources/${resourceId}/automatic-translations`,
+    accessToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ sourceLanguageCode }),
+    },
+  )
+
+  return parseResponse<AutomaticTranslationsResponse>(response)
 }

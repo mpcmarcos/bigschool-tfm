@@ -6,10 +6,14 @@ using System.Linq;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using resources_api.Contracts;
 using resources_api.Data;
 using resources_api.Models;
+using resources_api.Services;
 using Xunit;
 
 namespace resources_api_test
@@ -18,6 +22,8 @@ namespace resources_api_test
     {
         private readonly WebApplicationFactory<Program> _factory;
         private readonly string _dbPath;
+        private readonly FakeAutomaticTranslationClient _translationClient = new();
+        private readonly AutomaticTranslationSaveFailureSwitch _saveFailureSwitch = new();
 
         public ApiIntegrationTests()
         {
@@ -31,6 +37,21 @@ namespace resources_api_test
                     {
                         ["ConnectionStrings:Default"] = $"Data Source={_dbPath}"
                     });
+                });
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<DbContextOptions<AppDbContext>>();
+                    services.RemoveAll<AppDbContext>();
+                    services.AddSingleton(_saveFailureSwitch);
+                    services.AddSingleton<ThrowOnNextAutomaticTranslationSaveInterceptor>();
+                    services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+                    {
+                        options.UseSqlite($"Data Source={_dbPath}");
+                        options.AddInterceptors(serviceProvider.GetRequiredService<ThrowOnNextAutomaticTranslationSaveInterceptor>());
+                    });
+
+                    services.RemoveAll<IAutomaticTranslationClient>();
+                    services.AddSingleton<IAutomaticTranslationClient>(_translationClient);
                 });
             });
         }
@@ -516,6 +537,578 @@ namespace resources_api_test
             Assert.Null(resourceVersionEntity!.FindProperty("Name"));
             Assert.Null(resourceVersionEntity.FindProperty("IsDefault"));
             Assert.NotNull(resourceVersionEntity.FindProperty("LanguageCode"));
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_HappyPath_ReturnsCreatedAndPersistsExactTargets()
+        {
+            _translationClient.Result = new[]
+            {
+                new GeneratedTranslation("pt-br", "Olá"),
+                new GeneratedTranslation("en-uk", "Hello")
+            };
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-auto-happy", "owner-auto-happy@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new
+                {
+                    sourceLanguageCode = "es-es"
+                });
+
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            var createdTranslations = body.GetProperty("translations")
+                .EnumerateArray()
+                .Select(x => new
+                {
+                    LanguageCode = x.GetProperty("languageCode").GetString(),
+                    Value = x.GetProperty("value").GetString()
+                })
+                .ToArray();
+
+            Assert.Equal(2, createdTranslations.Length);
+            Assert.Collection(
+                createdTranslations,
+                first =>
+                {
+                    Assert.Equal("pt-br", first.LanguageCode);
+                    Assert.Equal("Olá", first.Value);
+                },
+                second =>
+                {
+                    Assert.Equal("en-uk", second.LanguageCode);
+                    Assert.Equal("Hello", second.Value);
+                });
+
+            var listResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Get,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/versions");
+            var listBody = await listResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var persistedByLanguage = listBody
+                .EnumerateArray()
+                .ToDictionary(
+                    x => x.GetProperty("languageCode").GetString()!,
+                    x => x.GetProperty("value").GetString()!,
+                    StringComparer.OrdinalIgnoreCase);
+
+            Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+            Assert.Equal(3, listBody.GetArrayLength());
+            Assert.Equal(3, persistedByLanguage.Count);
+            Assert.Equal("Hola", persistedByLanguage["es-es"]);
+            Assert.Equal("Olá", persistedByLanguage["pt-br"]);
+            Assert.Equal("Hello", persistedByLanguage["en-uk"]);
+
+            var call = Assert.Single(_translationClient.Calls);
+            Assert.Equal("es-es", call.SourceLanguageCode);
+            Assert.Equal("Hola", call.SourceValue);
+            Assert.Equal(new[] { "pt-br", "en-uk" }, call.TargetLanguageCodes);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_DbUpdateExceptionAfterRecheck_ReturnsConflict_AndPersistsOnlySource()
+        {
+            const string expectedCatchPathDetail = "Automatic translations could not be saved due to a concurrent update.";
+            const string recheckConflictDetail = "Resource translations changed during automatic translation generation.";
+
+            _translationClient.Result = new[]
+            {
+                new GeneratedTranslation("pt-br", "Olá"),
+                new GeneratedTranslation("en-uk", "Hello")
+            };
+
+            _translationClient.BeforeReturnAsync = _ =>
+            {
+                _saveFailureSwitch.ArmOneFailure();
+                return Task.CompletedTask;
+            };
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-auto-dbupdate", "owner-auto-dbupdate@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+            var responseBody = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            var versionsResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Get,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/versions");
+            var versions = await versionsResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var persisted = versions
+                .EnumerateArray()
+                .Select(x => new
+                {
+                    LanguageCode = x.GetProperty("languageCode").GetString(),
+                    Value = x.GetProperty("value").GetString()
+                })
+                .ToArray();
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Equal(expectedCatchPathDetail, responseBody.GetProperty("detail").GetString());
+            Assert.NotEqual(recheckConflictDetail, responseBody.GetProperty("detail").GetString());
+            Assert.Collection(
+                persisted,
+                item =>
+                {
+                    Assert.Equal("es-es", item.LanguageCode);
+                    Assert.Equal("Hola", item.Value);
+                });
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_Unauthenticated_ReturnsUnauthorized_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-unauth", "owner-auto-unauth@example.com");
+            var ownerToken = owner.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, ownerToken, "Hola", "es-es");
+
+            var response = await client.PostAsJsonAsync(
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_Viewer_ReturnsForbidden_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-viewer", "owner-auto-viewer@example.com");
+            var ownerToken = owner.GetProperty("accessToken").GetString()!;
+            var viewer = await LoginAsync(client, "viewer-auto-viewer", "viewer-auto-viewer@example.com");
+            var viewerToken = viewer.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, ownerToken, "Hola", "es-es");
+
+            var share = await SendAuthorizedAsync(
+                client,
+                ownerToken,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/members",
+                new { email = "viewer-auto-viewer@example.com", role = "viewer" });
+            Assert.Equal(HttpStatusCode.Created, share.StatusCode);
+
+            var response = await SendAuthorizedAsync(
+                client,
+                viewerToken,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_InvalidHierarchy_ReturnsBadRequestOrNotFound_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-hierarchy", "owner-auto-hierarchy@example.com");
+            var token = owner.GetProperty("accessToken").GetString()!;
+
+            var first = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+            var second = await CreateResourceHierarchyAsync(client, token, "Adiós", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{first.ProjectId}/pages/{first.PageId}/versions/{first.PageVersionId}/resources/{second.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            Assert.True(response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_MissingSource_ReturnsBadRequest_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-missing", "owner-auto-missing@example.com");
+            var token = owner.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Olá", "pt-br");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_UnsupportedSource_ReturnsBadRequest_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-unsupported", "owner-auto-unsupported@example.com");
+            var token = owner.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "fr-fr" });
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_NoPendingLanguages_ReturnsBadRequest_AndDoesNotCallProvider()
+        {
+            var client = _factory.CreateClient();
+            var owner = await LoginAsync(client, "owner-auto-pending", "owner-auto-pending@example.com");
+            var token = owner.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var versionsUrl = $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/versions";
+            var addPortuguese = await SendAuthorizedAsync(client, token, HttpMethod.Post, versionsUrl, new { languageCode = "pt-br", value = "Olá" });
+            var addEnglish = await SendAuthorizedAsync(client, token, HttpMethod.Post, versionsUrl, new { languageCode = "en-uk", value = "Hello" });
+            Assert.Equal(HttpStatusCode.Created, addPortuguese.StatusCode);
+            Assert.Equal(HttpStatusCode.Created, addEnglish.StatusCode);
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Empty(_translationClient.Calls);
+        }
+
+        [Theory]
+        [InlineData("partial")]
+        [InlineData("duplicate")]
+        [InlineData("extra")]
+        [InlineData("empty")]
+        [InlineData("unsupported")]
+        public async Task AutomaticTranslations_InvalidProviderSemanticOutput_ReturnsUnprocessableAndDoesNotInsert(string scenario)
+        {
+            _translationClient.Result = scenario switch
+            {
+                "partial" => new[]
+                {
+                    new GeneratedTranslation("pt-br", "Olá")
+                },
+                "duplicate" => new[]
+                {
+                    new GeneratedTranslation("pt-br", "Olá"),
+                    new GeneratedTranslation("pt-br", "Hello")
+                },
+                "extra" => new[]
+                {
+                    new GeneratedTranslation("pt-br", "Olá"),
+                    new GeneratedTranslation("en-uk", "Hello"),
+                    new GeneratedTranslation("es-es", "Hola")
+                },
+                "empty" => new[]
+                {
+                    new GeneratedTranslation("pt-br", " "),
+                    new GeneratedTranslation("en-uk", "Hello")
+                },
+                "unsupported" => new[]
+                {
+                    new GeneratedTranslation("pt-br", "Olá"),
+                    new GeneratedTranslation("fr-fr", "Bonjour")
+                },
+                _ => Array.Empty<GeneratedTranslation>()
+            };
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, $"owner-auto-invalid-{scenario}", $"owner-auto-invalid-{scenario}@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            var versionsResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Get,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/versions");
+            var versions = await versionsResponse.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal((HttpStatusCode)422, response.StatusCode);
+            Assert.Equal(1, versions.GetArrayLength());
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_ProviderInvalidResponse_MapsToBadGateway_AndDoesNotLeakSensitiveDetails()
+        {
+            _translationClient.Failure = new AutomaticTranslationProviderException(
+                TranslationProviderFailure.InvalidResponse,
+                "provider-invalid");
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-auto-502", "owner-auto-502@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+            Assert.DoesNotContain("api key", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("openai", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("responses", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hola", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_ProviderUnavailable_MapsToServiceUnavailable_AndDoesNotLeakSensitiveDetails()
+        {
+            _translationClient.Failure = new AutomaticTranslationProviderException(
+                TranslationProviderFailure.Unavailable,
+                "provider-unavailable");
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-auto-503", "owner-auto-503@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            Assert.DoesNotContain("api key", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("openai", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("responses", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("hola", body.GetProperty("detail").GetString()!, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public async Task AutomaticTranslations_ConcurrentInsertionBetweenProviderAndSave_ReturnsConflict_AndIsAllOrNothing()
+        {
+            _translationClient.Result = new[]
+            {
+                new GeneratedTranslation("pt-br", "Olá"),
+                new GeneratedTranslation("en-uk", "Hello")
+            };
+
+            var client = _factory.CreateClient();
+            var session = await LoginAsync(client, "owner-auto-concurrent", "owner-auto-concurrent@example.com");
+            var token = session.GetProperty("accessToken").GetString()!;
+            var hierarchy = await CreateResourceHierarchyAsync(client, token, "Hola", "es-es");
+
+            _translationClient.BeforeReturnAsync = async _ =>
+            {
+                var options = new DbContextOptionsBuilder<AppDbContext>()
+                    .UseSqlite($"Data Source={_dbPath}")
+                    .Options;
+                await using var context = new AppDbContext(options);
+                var now = DateTime.UtcNow;
+                context.ResourceVersions.Add(new ResourceVersion
+                {
+                    Id = Guid.NewGuid(),
+                    ResourceId = Guid.Parse(hierarchy.ResourceId),
+                    LanguageCode = "pt-br",
+                    Value = "Inserción concurrente",
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    IsDeleted = false
+                });
+                await context.SaveChangesAsync();
+            };
+
+            var response = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/automatic-translations",
+                new { sourceLanguageCode = "es-es" });
+
+            var versionsResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Get,
+                $"/api/v1/projects/{hierarchy.ProjectId}/pages/{hierarchy.PageId}/versions/{hierarchy.PageVersionId}/resources/{hierarchy.ResourceId}/versions");
+            var versions = await versionsResponse.Content.ReadFromJsonAsync<JsonElement>();
+            var languages = versions
+                .EnumerateArray()
+                .Select(x => x.GetProperty("languageCode").GetString())
+                .Where(x => x is not null)
+                .ToArray();
+
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Contains("es-es", languages);
+            Assert.Contains("pt-br", languages);
+            Assert.DoesNotContain("en-uk", languages);
+            Assert.Equal(2, languages.Length);
+        }
+
+        private static async Task<(string ProjectId, string PageId, string PageVersionId, string ResourceId)> CreateResourceHierarchyAsync(
+            HttpClient client,
+            string token,
+            string sourceValue,
+            string sourceLanguageCode)
+        {
+            var projectResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                "/api/v1/projects",
+                new { name = $"Project-{Guid.NewGuid():N}" });
+            projectResponse.EnsureSuccessStatusCode();
+            var projectId = (await projectResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+
+            var pageResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/pages",
+                new { name = "Home" });
+            pageResponse.EnsureSuccessStatusCode();
+            var pageId = (await pageResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+
+            var pageVersionResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions",
+                new { name = "v1" });
+            pageVersionResponse.EnsureSuccessStatusCode();
+            var pageVersionId = (await pageVersionResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()!;
+
+            var resourceResponse = await SendAuthorizedAsync(
+                client,
+                token,
+                HttpMethod.Post,
+                $"/api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources",
+                new { key = "hero.title", languageCode = sourceLanguageCode, value = sourceValue });
+            resourceResponse.EnsureSuccessStatusCode();
+            var resourceId = (await resourceResponse.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("resource")
+                .GetProperty("id")
+                .GetString()!;
+
+            return (projectId, pageId, pageVersionId, resourceId);
+        }
+
+        private sealed class FakeAutomaticTranslationClient : IAutomaticTranslationClient
+        {
+            public List<AutomaticTranslationInput> Calls { get; } = [];
+
+            public IReadOnlyList<GeneratedTranslation> Result { get; set; } = [];
+
+            public AutomaticTranslationProviderException? Failure { get; set; }
+
+            public Func<AutomaticTranslationInput, Task>? BeforeReturnAsync { get; set; }
+
+            public async Task<IReadOnlyList<GeneratedTranslation>> GenerateAsync(
+                AutomaticTranslationInput input,
+                CancellationToken cancellationToken)
+            {
+                Calls.Add(input);
+
+                if (Failure is not null)
+                {
+                    throw Failure;
+                }
+
+                if (BeforeReturnAsync is not null)
+                {
+                    await BeforeReturnAsync(input);
+                }
+
+                return Result;
+            }
+        }
+
+        private sealed class AutomaticTranslationSaveFailureSwitch
+        {
+            private int _remainingFailures;
+
+            public void ArmOneFailure()
+            {
+                Interlocked.Exchange(ref _remainingFailures, 1);
+            }
+
+            public bool TryConsumeFailure()
+            {
+                return Interlocked.CompareExchange(ref _remainingFailures, 0, 1) == 1;
+            }
+        }
+
+        private sealed class ThrowOnNextAutomaticTranslationSaveInterceptor : SaveChangesInterceptor
+        {
+            private readonly AutomaticTranslationSaveFailureSwitch _failureSwitch;
+
+            public ThrowOnNextAutomaticTranslationSaveInterceptor(AutomaticTranslationSaveFailureSwitch failureSwitch)
+            {
+                _failureSwitch = failureSwitch;
+            }
+
+            public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+            {
+                ThrowWhenArmed(eventData.Context);
+                return base.SavingChanges(eventData, result);
+            }
+
+            public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+                DbContextEventData eventData,
+                InterceptionResult<int> result,
+                CancellationToken cancellationToken = default)
+            {
+                ThrowWhenArmed(eventData.Context);
+                return base.SavingChangesAsync(eventData, result, cancellationToken);
+            }
+
+            private void ThrowWhenArmed(DbContext? dbContext)
+            {
+                if (dbContext is null)
+                {
+                    return;
+                }
+
+                var hasAddedResourceVersions = dbContext.ChangeTracker
+                    .Entries<ResourceVersion>()
+                    .Any(x => x.State == EntityState.Added);
+
+                if (hasAddedResourceVersions && _failureSwitch.TryConsumeFailure())
+                {
+                    throw new DbUpdateException("Simulated DbUpdateException for automatic translations.", innerException: null);
+                }
+            }
         }
 
         private static async Task<JsonElement> LoginAsync(HttpClient client, string providerUserId, string email)

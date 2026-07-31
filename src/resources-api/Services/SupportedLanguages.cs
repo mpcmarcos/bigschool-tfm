@@ -4,12 +4,10 @@ namespace resources_api.Services
 {
     public static class SupportedLanguages
     {
-        private static readonly HashSet<string> Codes = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "pt-br",
-            "es-es",
-            "en-uk"
-        };
+        private static readonly string[] OrderedCodes = ["pt-br", "es-es", "en-uk"];
+        private static readonly HashSet<string> Codes = new(OrderedCodes, StringComparer.OrdinalIgnoreCase);
+
+        public static IReadOnlyList<string> All { get; } = Array.AsReadOnly(OrderedCodes);
 
         public static string NormalizeAndValidate(string? code)
         {

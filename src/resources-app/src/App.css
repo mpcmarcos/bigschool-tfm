@@ -472,6 +472,27 @@
   gap: 0.25rem;
 }
 
+.automatic-translation-source-value {
+  resize: vertical;
+  border: 1px solid var(--line);
+  background: var(--bg-card-soft);
+  color: var(--text-main);
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.automatic-translation-target-list {
+  margin-top: 0.5rem;
+  gap: 0.5rem;
+}
+
+.automatic-translation-target-list li {
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-card-soft);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

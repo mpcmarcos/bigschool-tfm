@@ -18,6 +18,7 @@ La primera versión prioriza una jerarquía directa y predecible. Cada recurso p
 - OCR al crear una página desde una imagen.
 - Detección de recursos duplicados dentro de una versión de página.
 - Exportación JSON/XML a nivel de proyecto, página, versión de página o recurso.
+- Traducción automática de todos los idiomas pendientes mediante OpenAI Responses API.
 
 ### Fuera de alcance en esta versión
 
@@ -25,7 +26,7 @@ La primera versión prioriza una jerarquía directa y predecible. Cada recurso p
 - Entidades `ResourcePage`, `ResourceText`, `Language` y `ProjectLanguage`.
 - Configuración de idiomas por proyecto desde la interfaz.
 - Flujos avanzados de revisión editorial.
-- Traducción automática y memoria de traducción avanzada.
+- Memoria de traducción avanzada, glosarios y revisión editorial.
 
 ## 3) Modelo de dominio y relaciones
 
@@ -204,17 +205,18 @@ Reglas:
 10. Creación de página desde imagen mediante OCR y confirmación manual.
 11. Exportación JSON/XML por proyecto, página, versión de página o recurso.
 12. Búsqueda por proyecto, página, recurso e idioma.
+13. Traducción automática de los idiomas pendientes de un recurso mediante OpenAI Responses API.
 
 ### P2 — Prioridad media
 
-13. Historial y auditoría.
-14. Estados de revisión para traducciones.
+14. Historial y auditoría.
+15. Estados de revisión para traducciones.
 
 ### P3 — Evolutivo
 
-15. Catálogo de idiomas administrable.
-16. Permisos granulares.
-17. Exportaciones programadas o mediante API.
+16. Catálogo de idiomas administrable.
+17. Permisos granulares.
+18. Exportaciones programadas o mediante API.
 
 ## 8) Casos de uso clave
 
@@ -225,7 +227,9 @@ Reglas:
 5. Selecciona el idioma inicial y escribe el valor traducido.
 6. El sistema crea el recurso y la primera traducción atómicamente.
 7. Entra en el recurso y añade traducciones para otros idiomas disponibles.
-8. Exporta los recursos en JSON o XML.
+8. Como alternativa, selecciona una traducción existente y genera automáticamente todos los idiomas pendientes.
+9. El sistema valida la respuesta y guarda todas las traducciones generadas o ninguna.
+10. Exporta los recursos en JSON o XML.
 
 ## 9) Criterios de aceptación mínimos
 
@@ -239,6 +243,9 @@ Reglas:
 - No se puede crear dos veces el mismo idioma para un recurso.
 - El catálogo puede crecer sin cambiar la estructura de la base de datos.
 - Los IDs jerárquicamente incoherentes son rechazados.
+- El usuario puede elegir una traducción existente como origen y generar todos los idiomas pendientes.
+- La generación automática se guarda de forma atómica y nunca sobrescribe traducciones existentes.
+- El navegador nunca se conecta directamente a OpenAI ni contiene la API key.
 
 ## 10) URLs del sistema
 
@@ -271,6 +278,12 @@ El `POST` recibe `key`, `description?`, `languageCode` y `value`.
 - `PUT|DELETE /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/versions/{resourceVersionId}`
 
 El `POST` recibe `languageCode` y `value`. No existe una operación `set-default` para `ResourceVersion`.
+
+### Traducciones automáticas
+
+- `POST /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/automatic-translations`
+
+El `POST` recibe únicamente `sourceLanguageCode`. La API carga el valor de origen, calcula todos los idiomas pendientes, invoca OpenAI Responses API con Structured Outputs y guarda la respuesta completa en una única transacción. Una respuesta parcial o inválida no produce cambios. El contrato detallado, la configuración de OpenAI y la gestión de credenciales se definen en `docs/05-automatic-translates/SPEC.md`.
 
 ## 12) Persistencia y migración
 

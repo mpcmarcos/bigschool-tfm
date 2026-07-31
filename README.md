@@ -207,6 +207,24 @@ dotnet user-secrets set "Authentication:Google:ClientSecret" "<google-client-sec
 dotnet user-secrets set "ConnectionStrings:Default" "Server=localhost;Port=3306;Database=resourcesdb;User=resources_user;Password=resources_pass;"
 ```
 
+## Configuracion local segura de OpenAI
+
+Para configurar la API key de OpenAI en local sin exponerla en el historial, usa este comando silencioso:
+
+```bash
+read -s "OPENAI_API_KEY?Nueva OpenAI API key: " && printf '\n' && \
+printf '{"OpenAI:ApiKey":"%s"}' "$OPENAI_API_KEY" | \
+dotnet user-secrets set --project src/resources-api/resources-api.csproj && \
+unset OPENAI_API_KEY
+```
+
+Notas importantes:
+- Introduce la clave directamente en el prompt del terminal; no la pegues en chats, docs ni commits.
+- La suscripcion de ChatGPT no incluye credito de API en OpenAI Platform.
+- En produccion, configura `OpenAI:ApiKey` en el secret manager del proveedor de alojamiento.
+- `OpenAI:Model`, `OpenAI:TimeoutSeconds` y `OpenAI:MaxOutputTokens` son ajustes no secretos.
+- Si una clave se expone, revocala y rotala de inmediato.
+
 ### Ejecutar tests en contenedores
 Backend:
 ```bash

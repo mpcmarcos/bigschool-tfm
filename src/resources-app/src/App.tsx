@@ -11,6 +11,7 @@ import {
   getProjects,
   getResources,
   getResourceVersions,
+  postAutomaticTranslations,
   postLogout,
   postPage,
   postPageVersion,
@@ -287,10 +288,23 @@ function App() {
   const [isCreateResourceVersionModalOpen, setIsCreateResourceVersionModalOpen] = useState(false)
   const [newResourceVersionLanguage, setNewResourceVersionLanguage] = useState<SupportedLanguageCode>('pt-br')
   const [newResourceVersionValue, setNewResourceVersionValue] = useState('')
+  const [isAutomaticTranslationsModalOpen, setIsAutomaticTranslationsModalOpen] = useState(false)
+  const [automaticTranslationSource, setAutomaticTranslationSource] = useState<SupportedLanguageCode>('es-es')
+  const [automaticTranslationsSubmitting, setAutomaticTranslationsSubmitting] = useState(false)
+  const [automaticTranslationsError, setAutomaticTranslationsError] = useState('')
+  const automaticTranslationsRequestLockRef = useRef(false)
   const route = useMemo(() => resolveRoute(currentPath), [currentPath])
+  const resourceRouteIdentity = `${route.projectId ?? ''}:${route.pageId ?? ''}:${route.pageVersionId ?? ''}:${route.resourceId ?? ''}`
+  const resourceRouteIdentityRef = useRef(resourceRouteIdentity)
+  const resourceVersionsRequestIdRef = useRef(0)
+  const automaticTranslationsRequestIdRef = useRef(0)
   const availableLanguages = SUPPORTED_LANGUAGES.filter(
     (language) => !resourceVersions.some((version) => version.languageCode === language.code),
   )
+  const existingSourceLanguages = SUPPORTED_LANGUAGES.filter((language) =>
+    resourceVersions.some((version) => version.languageCode === language.code),
+  )
+  const selectedSourceVersion = resourceVersions.find((version) => version.languageCode === automaticTranslationSource) ?? null
 
   useEffect(() => {
     const onPopState = () => setCurrentPath(normalizePath(window.location.pathname))
@@ -606,6 +620,9 @@ function App() {
     const pageId = route.pageId
     const pageVersionId = route.pageVersionId
     const resourceId = route.resourceId
+    const requestRouteIdentity = resourceRouteIdentity
+    let effectIsCurrent = true
+    let resourceVersionsRequestIdForRun: number | null = null
 
     const loadHierarchy = async () => {
       setError('')
@@ -617,6 +634,8 @@ function App() {
           setPageVersions([])
           setResources([])
           setResourceVersions([])
+          setIsAutomaticTranslationsModalOpen(false)
+          setAutomaticTranslationsError('')
           return
         }
 
@@ -638,6 +657,8 @@ function App() {
         }
 
         setResourceVersionsLoading(true)
+        resourceVersionsRequestIdForRun = resourceVersionsRequestIdRef.current + 1
+        resourceVersionsRequestIdRef.current = resourceVersionsRequestIdForRun
         const fetchedResourceVersions = await getResourceVersions(
           session.accessToken,
           projectId,
@@ -645,19 +666,53 @@ function App() {
           pageVersionId,
           resourceId,
         )
+        if (
+          !effectIsCurrent ||
+          resourceVersionsRequestIdForRun !== resourceVersionsRequestIdRef.current ||
+          requestRouteIdentity !== resourceRouteIdentityRef.current
+        ) {
+          return
+        }
         setResourceVersions(fetchedResourceVersions.filter((version) => !version.isDeleted))
       } catch (requestError) {
+        if (
+          !effectIsCurrent ||
+          (resourceVersionsRequestIdForRun !== null && resourceVersionsRequestIdForRun !== resourceVersionsRequestIdRef.current) ||
+          requestRouteIdentity !== resourceRouteIdentityRef.current
+        ) {
+          return
+        }
         setError(requestError instanceof Error ? requestError.message : 'Unknown error')
       } finally {
         setPagesLoading(false)
         setPageVersionsLoading(false)
         setResourcesLoading(false)
-        setResourceVersionsLoading(false)
+        if (resourceVersionsRequestIdForRun === null || resourceVersionsRequestIdForRun === resourceVersionsRequestIdRef.current) {
+          setResourceVersionsLoading(false)
+        }
       }
     }
 
     void loadHierarchy()
-  }, [route, session])
+
+    return () => {
+      effectIsCurrent = false
+    }
+  }, [resourceRouteIdentity, route, session])
+
+  useEffect(() => {
+    resourceRouteIdentityRef.current = resourceRouteIdentity
+  }, [resourceRouteIdentity])
+
+  useEffect(() => {
+    setResourceVersions([])
+    setIsAutomaticTranslationsModalOpen(false)
+    setAutomaticTranslationsError('')
+    setAutomaticTranslationSource('es-es')
+    setAutomaticTranslationsSubmitting(false)
+    automaticTranslationsRequestLockRef.current = false
+    automaticTranslationsRequestIdRef.current += 1
+  }, [resourceRouteIdentity])
 
   const handleCreatePage = async () => {
     if (!session || !route.projectId) {
@@ -839,6 +894,82 @@ function App() {
       setError('')
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    }
+  }
+
+  const openAutomaticTranslationsModal = () => {
+    if (resourceVersionsLoading || existingSourceLanguages.length === 0 || availableLanguages.length === 0) {
+      return
+    }
+
+    setAutomaticTranslationSource(existingSourceLanguages[0].code)
+    setAutomaticTranslationsError('')
+    setIsAutomaticTranslationsModalOpen(true)
+  }
+
+  const closeAutomaticTranslationsModal = () => {
+    if (automaticTranslationsSubmitting) {
+      return
+    }
+
+    setIsAutomaticTranslationsModalOpen(false)
+  }
+
+  const handleGenerateAutomaticTranslations = async () => {
+    if (!session || !route.projectId || !route.pageId || !route.pageVersionId || !route.resourceId) {
+      return
+    }
+
+    if (automaticTranslationsRequestLockRef.current || automaticTranslationsSubmitting) {
+      return
+    }
+
+    const sourceVersion = resourceVersions.find((version) => version.languageCode === automaticTranslationSource)
+    if (!sourceVersion || availableLanguages.length === 0) {
+      return
+    }
+
+    const automaticTranslationsRequestId = automaticTranslationsRequestIdRef.current + 1
+    automaticTranslationsRequestIdRef.current = automaticTranslationsRequestId
+    const requestRouteIdentity = resourceRouteIdentity
+    automaticTranslationsRequestLockRef.current = true
+    setAutomaticTranslationsSubmitting(true)
+    setAutomaticTranslationsError('')
+
+    try {
+      const response = await postAutomaticTranslations(
+        session.accessToken,
+        route.projectId,
+        route.pageId,
+        route.pageVersionId,
+        route.resourceId,
+        automaticTranslationSource,
+      )
+      if (
+        automaticTranslationsRequestId !== automaticTranslationsRequestIdRef.current ||
+        requestRouteIdentity !== resourceRouteIdentityRef.current
+      ) {
+        return
+      }
+      setResourceVersions((currentVersions) => [...response.translations, ...currentVersions])
+      setIsAutomaticTranslationsModalOpen(false)
+      setError('')
+    } catch (requestError) {
+      if (
+        automaticTranslationsRequestId !== automaticTranslationsRequestIdRef.current ||
+        requestRouteIdentity !== resourceRouteIdentityRef.current
+      ) {
+        return
+      }
+      setAutomaticTranslationsError(requestError instanceof Error ? requestError.message : 'Unknown error')
+    } finally {
+      if (
+        automaticTranslationsRequestId === automaticTranslationsRequestIdRef.current &&
+        requestRouteIdentity === resourceRouteIdentityRef.current
+      ) {
+        automaticTranslationsRequestLockRef.current = false
+        setAutomaticTranslationsSubmitting(false)
+      }
     }
   }
 
@@ -1125,6 +1256,11 @@ function App() {
                     }}
                   >
                     Añadir traducción
+                  </button>
+                ) : null}
+                {!resourceVersionsLoading && resourceVersions.length > 0 && availableLanguages.length > 0 ? (
+                  <button type="button" onClick={openAutomaticTranslationsModal}>
+                    Añadir traducciones automáticas
                   </button>
                 ) : null}
                 <button type="button" onClick={() => navigate(`/projects/${route.projectId}/${route.pageId}/${route.pageVersionId}`)}>
@@ -1553,6 +1689,95 @@ function App() {
                 Guardar traducción
               </button>
               <button type="button" onClick={() => setIsCreateResourceVersionModalOpen(false)}>
+                Cancelar
+              </button>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isAutomaticTranslationsModalOpen ? (
+        <section
+          className="modal-backdrop"
+          role="dialog"
+          aria-labelledby="automatic-translations-dialog-title"
+          aria-label="Añadir traducciones automáticas"
+          aria-modal="true"
+        >
+          <article className="modal-card">
+            <h3 id="automatic-translations-dialog-title">Añadir traducciones automáticas</h3>
+            <div className="project-subpanel">
+              <label htmlFor="automatic-translations-source-language">Idioma de origen</label>
+              <div className="language-select-row">
+                <img
+                  src={SUPPORTED_LANGUAGES.find((language) => language.code === automaticTranslationSource)?.flagSrc}
+                  alt=""
+                  width="32"
+                  height="24"
+                />
+                <select
+                  id="automatic-translations-source-language"
+                  aria-label="Idioma de origen"
+                  value={automaticTranslationSource}
+                  onChange={(event) => setAutomaticTranslationSource(event.target.value as SupportedLanguageCode)}
+                  disabled={automaticTranslationsSubmitting}
+                >
+                  {existingSourceLanguages.map((language) => (
+                    <option key={language.code} value={language.code}>{language.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="language-heading">
+                <img
+                  src={SUPPORTED_LANGUAGES.find((language) => language.code === automaticTranslationSource)?.flagSrc}
+                  alt=""
+                  width="32"
+                  height="24"
+                />
+                <h2>{SUPPORTED_LANGUAGES.find((language) => language.code === automaticTranslationSource)?.label ?? automaticTranslationSource}</h2>
+                <span>{automaticTranslationSource}</span>
+              </div>
+              <label htmlFor="automatic-translations-source-value">Texto de origen</label>
+              <textarea
+                id="automatic-translations-source-value"
+                aria-label="Texto de origen"
+                className="automatic-translation-source-value"
+                value={selectedSourceVersion?.value ?? ''}
+                readOnly
+                rows={4}
+              />
+              <div>
+                <h4 id="automatic-translations-target-languages-heading">Idiomas de destino</h4>
+                <ul
+                  aria-label="Idiomas de destino"
+                  aria-labelledby="automatic-translations-target-languages-heading"
+                  className="members-list automatic-translation-target-list"
+                >
+                  {availableLanguages.map((language) => (
+                    <li key={language.code} className="language-heading">
+                      <img src={language.flagSrc} alt="" width="32" height="24" />
+                      <h2>{language.label}</h2>
+                      <span>{language.code}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {automaticTranslationsError ? <p role="alert" className="error">{automaticTranslationsError}</p> : null}
+            </div>
+            <div className="project-subpanel-actions">
+              <button
+                type="button"
+                onClick={() => void handleGenerateAutomaticTranslations()}
+                disabled={
+                  automaticTranslationsSubmitting ||
+                  existingSourceLanguages.length === 0 ||
+                  availableLanguages.length === 0 ||
+                  !selectedSourceVersion
+                }
+              >
+                {automaticTranslationsSubmitting ? 'Generando...' : 'Generar y guardar'}
+              </button>
+              <button type="button" onClick={closeAutomaticTranslationsModal} disabled={automaticTranslationsSubmitting}>
                 Cancelar
               </button>
             </div>

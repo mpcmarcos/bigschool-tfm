@@ -12,6 +12,17 @@ const buildJsonResponse = (body: unknown, status = 200) =>
     }),
   )
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
+
 describe('App Home/Login/Projects flow', () => {
   afterEach(() => {
     vi.restoreAllMocks()
@@ -830,5 +841,864 @@ describe('App Home/Login/Projects flow', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('Page version does not belong to project.')
     })
     expect(screen.queryByText('hero.title')).not.toBeInTheDocument()
+  })
+
+  it('generates automatic translations from one source and renders returned versions without refetching', async () => {
+    let resourceVersionsGetCalls = 0
+    let automaticTranslationsPostCalls = 0
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        resourceVersionsGetCalls += 1
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        automaticTranslationsPostCalls += 1
+        expect(JSON.parse(String(init?.body))).toEqual({ sourceLanguageCode: 'es-es' })
+
+        return buildJsonResponse(
+          {
+            translations: [
+              {
+                id: 'resource-version-2',
+                resourceId: 'resource-1',
+                languageCode: 'pt-br',
+                value: 'Ola',
+                createdAt: '2026-01-02T00:00:00Z',
+                updatedAt: '2026-01-02T00:00:00Z',
+                isDeleted: false,
+              },
+              {
+                id: 'resource-version-3',
+                resourceId: 'resource-1',
+                languageCode: 'en-uk',
+                value: 'Hello',
+                createdAt: '2026-01-02T00:00:00Z',
+                updatedAt: '2026-01-02T00:00:00Z',
+                isDeleted: false,
+              },
+            ],
+          },
+          201,
+        )
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-success',
+        refreshToken: 'refresh-token-auto-success',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-success',
+          email: 'auto-success@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Traducciones del recurso' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Añadir traducciones automáticas' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    const sourceSelect = within(dialog).getByLabelText('Idioma de origen')
+    expect(within(sourceSelect).getByRole('option', { name: 'Español' })).toBeInTheDocument()
+    expect(within(sourceSelect).queryByRole('option', { name: 'Português (Brasil)' })).not.toBeInTheDocument()
+    expect(within(sourceSelect).queryByRole('option', { name: 'English (United Kingdom)' })).not.toBeInTheDocument()
+
+    const sourceValue = within(dialog).getByLabelText('Texto de origen')
+    expect(sourceValue).toHaveValue('Hola')
+    expect(sourceValue).toHaveAttribute('readonly')
+
+    const targetLanguages = within(dialog).getByLabelText('Idiomas de destino')
+    expect(within(targetLanguages).getByText('Português (Brasil)')).toBeInTheDocument()
+    expect(within(targetLanguages).getByText('English (United Kingdom)')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generar y guardar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Hola')).toBeInTheDocument()
+    expect(screen.getByText('Ola')).toBeInTheDocument()
+    expect(screen.getByText('Hello')).toBeInTheDocument()
+    expect(resourceVersionsGetCalls).toBe(1)
+    expect(automaticTranslationsPostCalls).toBe(1)
+  })
+
+  it('hides automatic translation action while loading, with no source versions, and with no pending target languages', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-visibility',
+        refreshToken: 'refresh-token-auto-visibility',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-visibility',
+          email: 'auto-visibility@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    const loadingDeferred = createDeferred<Response>()
+    fetchMock.mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return loadingDeferred.promise
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    expect(await screen.findByText('Cargando versiones de recurso...')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+
+    loadingDeferred.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ]),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Añadir traducciones automáticas' })).toBeInTheDocument()
+    })
+
+    cleanup()
+    fetchMock.mockReset()
+
+    fetchMock.mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([])
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Traducciones del recurso' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+
+    cleanup()
+    fetchMock.mockReset()
+
+    fetchMock.mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 'resource-version-2',
+            resourceId: 'resource-1',
+            languageCode: 'pt-br',
+            value: 'Ola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 'resource-version-3',
+            resourceId: 'resource-1',
+            languageCode: 'en-uk',
+            value: 'Hello',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Traducciones del recurso' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('updates source selector value and read-only source text when multiple source languages exist', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 'resource-version-2',
+            resourceId: 'resource-1',
+            languageCode: 'en-uk',
+            value: 'Hello',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-source',
+        refreshToken: 'refresh-token-auto-source',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-source',
+          email: 'auto-source@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+
+    const sourceSelect = within(dialog).getByLabelText('Idioma de origen')
+    expect(within(sourceSelect).getByRole('option', { name: 'Español' })).toBeInTheDocument()
+    expect(within(sourceSelect).getByRole('option', { name: 'English (United Kingdom)' })).toBeInTheDocument()
+
+    const sourceValue = within(dialog).getByLabelText('Texto de origen')
+    expect(sourceValue).toHaveValue('Hola')
+    fireEvent.change(sourceSelect, { target: { value: 'en-uk' } })
+    expect(sourceValue).toHaveValue('Hello')
+  })
+
+  it('disables automatic translation controls while submitting and blocks same-tick duplicate posts', async () => {
+    const postDeferred = createDeferred<Response>()
+    let automaticTranslationsPostCalls = 0
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        automaticTranslationsPostCalls += 1
+        return postDeferred.promise
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-pending',
+        refreshToken: 'refresh-token-auto-pending',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-pending',
+          email: 'auto-pending@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    const generateButton = within(dialog).getByRole('button', { name: 'Generar y guardar' })
+    const cancelButton = within(dialog).getByRole('button', { name: 'Cancelar' })
+
+    fireEvent.click(generateButton)
+    fireEvent.click(generateButton)
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole('button', { name: 'Generando...' })).toBeDisabled()
+    })
+    expect(cancelButton).toBeDisabled()
+    expect(automaticTranslationsPostCalls).toBe(1)
+
+    postDeferred.resolve(
+      new Response(JSON.stringify({ translations: [] }), {
+        status: 201,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps automatic translation modal state and shows server message inside dialog when post fails', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 'resource-version-2',
+            resourceId: 'resource-1',
+            languageCode: 'en-uk',
+            value: 'Hello',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        return buildJsonResponse(
+          {
+            title: 'Bad Request',
+            detail: 'No se pudieron generar traducciones automáticas.',
+          },
+          400,
+        )
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-error',
+        refreshToken: 'refresh-token-auto-error',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-error',
+          email: 'auto-error@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    const sourceSelect = within(dialog).getByLabelText('Idioma de origen')
+    fireEvent.change(sourceSelect, { target: { value: 'en-uk' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generar y guardar' }))
+
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert).toHaveTextContent('No se pudieron generar traducciones automáticas.')
+    expect(screen.getByRole('dialog', { name: 'Añadir traducciones automáticas' })).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Idioma de origen')).toHaveValue('en-uk')
+    expect(within(dialog).getByLabelText('Texto de origen')).toHaveValue('Hello')
+
+    const targetLanguages = within(dialog).getByLabelText('Idiomas de destino')
+    expect(within(targetLanguages).getByText('Português (Brasil)')).toBeInTheDocument()
+  })
+
+  it('ignores stale resource-version GET responses after route changes to another resource', async () => {
+    const resourceOneGetDeferred = createDeferred<Response>()
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return resourceOneGetDeferred.promise
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-2/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-2-version-1',
+            resourceId: 'resource-2',
+            languageCode: 'en-uk',
+            value: 'Hello from resource 2',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-stale-get',
+        refreshToken: 'refresh-token-stale-get',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-stale-get',
+          email: 'stale-get@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    expect(await screen.findByText('Cargando versiones de recurso...')).toBeInTheDocument()
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-2')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    expect(await screen.findByText('Hello from resource 2')).toBeInTheDocument()
+
+    resourceOneGetDeferred.resolve(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'resource-1-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola from resource 1',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ]),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Hola from resource 1')).not.toBeInTheDocument()
+      expect(screen.getByText('Hello from resource 2')).toBeInTheDocument()
+    })
+  })
+
+  it('closes and resets automatic modal on resource change and ignores stale automatic post completion', async () => {
+    const resourceOnePostDeferred = createDeferred<Response>()
+    const automaticPostPayloads: Array<{ sourceLanguageCode: string }> = []
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-1-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola resource 1',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-2/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-2-version-1',
+            resourceId: 'resource-2',
+            languageCode: 'en-uk',
+            value: 'Hello resource 2',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        automaticPostPayloads.push(JSON.parse(String(init?.body)) as { sourceLanguageCode: string })
+        return resourceOnePostDeferred.promise
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-stale-post',
+        refreshToken: 'refresh-token-stale-post',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-stale-post',
+          email: 'stale-post@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const firstDialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    fireEvent.click(within(firstDialog).getByRole('button', { name: 'Generar y guardar' }))
+
+    await waitFor(() => {
+      expect(within(firstDialog).getByRole('button', { name: 'Generando...' })).toBeDisabled()
+    })
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-2')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+    expect(await screen.findByText('Hello resource 2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const secondDialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    expect(within(secondDialog).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(secondDialog).getByLabelText('Idioma de origen')).toHaveValue('en-uk')
+    expect(within(secondDialog).getByLabelText('Texto de origen')).toHaveValue('Hello resource 2')
+
+    resourceOnePostDeferred.resolve(
+      new Response(
+        JSON.stringify({
+          translations: [
+            {
+              id: 'resource-1-version-2',
+              resourceId: 'resource-1',
+              languageCode: 'pt-br',
+              value: 'Ola resource 1',
+              createdAt: '2026-01-02T00:00:00Z',
+              updatedAt: '2026-01-02T00:00:00Z',
+              isDeleted: false,
+            },
+          ],
+        }),
+        {
+          status: 201,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      ),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByText('Ola resource 1')).not.toBeInTheDocument()
+      expect(within(secondDialog).getByLabelText('Texto de origen')).toHaveValue('Hello resource 2')
+      expect(within(secondDialog).getByLabelText('Idioma de origen')).toHaveValue('en-uk')
+    })
+
+    expect(automaticPostPayloads).toEqual([{ sourceLanguageCode: 'es-es' }])
+  })
+
+  it('retries automatic translations post once after 401 refresh with identical payload', async () => {
+    const automaticPostAuthorizations: string[] = []
+    const automaticPostPayloads: Array<{ sourceLanguageCode: string }> = []
+    let refreshCalls = 0
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.endsWith('/api/v1/auth/refresh') && method === 'POST') {
+        refreshCalls += 1
+        expect(JSON.parse(String(init?.body))).toEqual({ refreshToken: 'refresh-token-auto-refresh' })
+        return buildJsonResponse({
+          accessToken: 'access-token-auto-refreshed',
+          refreshToken: 'refresh-token-auto-refreshed',
+          tokenType: 'Bearer',
+          expiresIn: 900,
+          user: {
+            id: 'user-auto-refresh',
+            email: 'auto-refresh@example.com',
+            lastLoginAt: '2026-01-01T00:00:00Z',
+          },
+        })
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        automaticPostAuthorizations.push(new Headers(init?.headers).get('Authorization') ?? '')
+        automaticPostPayloads.push(JSON.parse(String(init?.body)) as { sourceLanguageCode: string })
+
+        if (automaticPostAuthorizations.length === 1) {
+          return buildJsonResponse({ title: 'Unauthorized', detail: 'Expired access token.' }, 401)
+        }
+
+        return buildJsonResponse(
+          {
+            translations: [
+              {
+                id: 'resource-version-2',
+                resourceId: 'resource-1',
+                languageCode: 'pt-br',
+                value: 'Ola',
+                createdAt: '2026-01-02T00:00:00Z',
+                updatedAt: '2026-01-02T00:00:00Z',
+                isDeleted: false,
+              },
+            ],
+          },
+          201,
+        )
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-expired',
+        refreshToken: 'refresh-token-auto-refresh',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-refresh',
+          email: 'auto-refresh@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generar y guardar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+
+    expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    expect(refreshCalls).toBe(1)
+    expect(automaticPostAuthorizations).toEqual(['Bearer access-token-auto-expired', 'Bearer access-token-auto-refreshed'])
+    expect(automaticPostPayloads).toEqual([{ sourceLanguageCode: 'es-es' }, { sourceLanguageCode: 'es-es' }])
+  })
+
+  it('clears modal error and reinitializes source selection after close and reopen', async () => {
+    let automaticPostCalls = 0
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (typeof input !== 'string') {
+        throw new Error(`Unexpected URL: ${String(input)}`)
+      }
+
+      const method = init?.method ?? 'GET'
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/versions') && method === 'GET') {
+        return buildJsonResponse([
+          {
+            id: 'resource-version-1',
+            resourceId: 'resource-1',
+            languageCode: 'es-es',
+            value: 'Hola',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+          {
+            id: 'resource-version-2',
+            resourceId: 'resource-1',
+            languageCode: 'en-uk',
+            value: 'Hello',
+            createdAt: '2026-01-01T00:00:00Z',
+            updatedAt: '2026-01-01T00:00:00Z',
+            isDeleted: false,
+          },
+        ])
+      }
+
+      if (input.includes('/pages/page-1/versions/page-version-1/resources/resource-1/automatic-translations') && method === 'POST') {
+        automaticPostCalls += 1
+        if (automaticPostCalls === 1) {
+          return buildJsonResponse(
+            {
+              title: 'Bad Request',
+              detail: 'No se pudieron generar traducciones automáticas.',
+            },
+            400,
+          )
+        }
+
+        return buildJsonResponse({ translations: [] }, 201)
+      }
+
+      throw new Error(`Unexpected URL: ${input} (${method})`)
+    })
+
+    localStorage.setItem(
+      'resources-auth-session',
+      JSON.stringify({
+        accessToken: 'access-token-auto-reopen',
+        refreshToken: 'refresh-token-auto-reopen',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: {
+          id: 'user-auto-reopen',
+          email: 'auto-reopen@example.com',
+          lastLoginAt: '2026-01-01T00:00:00Z',
+        },
+      }),
+    )
+
+    window.history.pushState({}, '', '/projects/project-1/page-1/page-version-1/resource-1')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const firstOpenDialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    const sourceSelect = within(firstOpenDialog).getByLabelText('Idioma de origen')
+
+    fireEvent.change(sourceSelect, { target: { value: 'en-uk' } })
+    expect(within(firstOpenDialog).getByLabelText('Texto de origen')).toHaveValue('Hello')
+    fireEvent.click(within(firstOpenDialog).getByRole('button', { name: 'Generar y guardar' }))
+
+    expect(await within(firstOpenDialog).findByRole('alert')).toHaveTextContent('No se pudieron generar traducciones automáticas.')
+
+    fireEvent.click(within(firstOpenDialog).getByRole('button', { name: 'Cancelar' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Añadir traducciones automáticas' })).not.toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Añadir traducciones automáticas' }))
+    const secondOpenDialog = await screen.findByRole('dialog', { name: 'Añadir traducciones automáticas' })
+    expect(within(secondOpenDialog).queryByRole('alert')).not.toBeInTheDocument()
+    expect(within(secondOpenDialog).getByLabelText('Idioma de origen')).toHaveValue('es-es')
+    expect(within(secondOpenDialog).getByLabelText('Texto de origen')).toHaveValue('Hola')
   })
 })
