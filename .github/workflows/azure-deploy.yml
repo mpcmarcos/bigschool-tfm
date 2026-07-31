@@ -68,6 +68,7 @@ jobs:
           DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
           JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           az containerapp secret set \
             --name "$AZURE_API_CONTAINER_APP" \
