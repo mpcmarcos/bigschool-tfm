@@ -75,6 +75,7 @@ jobs:
             --secrets \
               db-connection-string="$DB_CONNECTION_STRING" \
               jwt-signing-key="$JWT_SIGNING_KEY" \
+              openai-api-key="$OPENAI_API_KEY" \
               google-client-secret="$GOOGLE_CLIENT_SECRET"
 
           az containerapp update \
@@ -83,6 +84,7 @@ jobs:
             --image "$ACR_LOGIN_SERVER/resources-api:$IMAGE_TAG" \
             --set-env-vars \
               ConnectionStrings__Default=secretref:db-connection-string \
+              OpenAI__ApiKey=secretref:openai-api-key \
               Authentication__Jwt__SigningKey=secretref:jwt-signing-key \
               Authentication__Jwt__Issuer="$JWT_ISSUER" \
               Authentication__Jwt__Audience="$JWT_AUDIENCE" \
