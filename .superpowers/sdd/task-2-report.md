@@ -1,247 +1,214 @@
-# Task 2 Report — Atomic automatic translations API
+# Task 2 Report
 
-## Outcome
-Implemented authenticated, atomic automatic translation generation at:
+## Summary
 
-- `POST /api/v1/projects/{projectId}/pages/{pageId}/versions/{pageVersionId}/resources/{resourceId}/automatic-translations`
+Task 2 capture automation was executed against the real Vite app at `http://127.0.0.1:5173` using browser and Playwright tooling only. The nine requested PNG files were generated under `docs/presentation/assets` with demo session data and no real backend or OpenAI calls.
 
-The endpoint now validates access/hierarchy/source language, computes canonical pending targets, invokes `IAutomaticTranslationClient`, validates exact semantic output, rechecks active languages in a transaction after provider return, and persists all generated translations in one commit or none.
+The main limitation is the integrated browser runtime exposed an effective viewport of `281x175` CSS pixels despite repeated attempts to set `1440x900`. The saved PNGs are retina-scaled files (`2880x1800`), but the rendered app content occupies only a narrow area on the left side of each image. Because of that, the deliverables exist and are internally consistent, but they are not presentation-ready or compliant with the requested effective viewport/legibility requirement.
 
-## Files changed
+## Routes Captured
 
-- `src/resources-api/Contracts/GenerateAutomaticTranslationsRequest.cs` (created)
-- `src/resources-api/Contracts/AutomaticTranslationsResponse.cs` (created)
-- `src/resources-api/Services/SupportedLanguages.cs`
-- `src/resources-api/Services/NavigationService.cs`
-- `src/resources-api/Controllers/NavigationController.cs`
-- `src/resources-api-test/ApiIntegrationTests.cs`
+1. `/` -> `01-home.png`
+2. `/login` -> `02-login.png`
+3. `/projects` -> `03-projects.png`
+4. `/projects` with share modal open -> `04-project-members.png`
+5. `/projects/project-commerce` -> `05-pages.png`
+6. `/projects/project-commerce/page-checkout` -> `06-page-versions.png`
+7. `/projects/project-commerce/page-checkout/page-version-v1` -> `07-resources.png`
+8. `/projects/project-commerce/page-checkout/page-version-v1/resource-checkout-pay-button` -> `08-translations.png`
+9. `/projects/project-commerce/page-checkout/page-version-v1/resource-checkout-pay-button` with automatic-translations modal open -> `09-automatic-translations.png`
 
-## TDD evidence
+## Session And Interaction Flow
 
-### Red command and failure
+- Public captures used the real app with `resources-app-theme=dark` and no auth session in localStorage.
+- Authenticated captures seeded `resources-auth-session` in localStorage with:
 
-Command:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter AutomaticTranslations
+```json
+{
+  "accessToken": "presentation-access-token",
+  "refreshToken": "presentation-refresh-token",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "user": {
+    "id": "user-demo",
+    "email": "marcos@example.com",
+    "lastLoginAt": "2026-07-31T10:00:00Z"
+  }
+}
 ```
 
-Observed red:
+- Members capture interaction: opened the `Compartir` action from the project card and waited for the `Compartir proyecto` modal plus member list.
+- Automatic-translations capture interaction: opened `Añadir traducciones automáticas` from the resource translations route and waited for the modal content and target languages to render.
 
-- Focused suite failed with 14 failures.
-- Primary failure mode before implementation: `NotFound` for the missing route and empty-body JSON parse failures when tests expected created/problem payloads.
-- Representative mismatch examples:
-  - expected `Unauthorized`, actual `NotFound`
-  - expected `UnprocessableEntity`, actual `NotFound`
-  - expected `Conflict`, actual `NotFound`
+## Mocked Demo Data
 
-### Green commands and exact pass counts
+All mocked payloads matched the response types declared in `src/resources-app/src/api.ts`.
 
-Focused automatic translations:
+### Base entities
 
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter AutomaticTranslations
+- Project: `project-commerce` / `App móvil Commerce`
+- Members:
+  - `marcos@example.com` / `admin`
+  - `ana@example.com` / `editor`
+- Page: `page-checkout` / `Checkout`
+- Page versions:
+  - `page-version-v1` / `v1.0` / `isDefault=true`
+  - `page-version-v2` / `v2.0` / `isDefault=false`
+- Resource: `resource-checkout-pay-button` / `checkout.pay_button`
+- Description: `Texto del botón principal de pago`
+
+### Translation states
+
+- For `08-translations.png`, the resource version list returned:
+  - `es-es = Pagar ahora`
+  - `en-uk = Pay now`
+  - `pt-br = Pagar agora`
+
+- For `09-automatic-translations.png`, the open modal required available target languages in the current UI, so the pre-modal resource version list intentionally returned only:
+  - `es-es = Pagar ahora`
+
+  The automatic translations POST response was prepared to return:
+  - `en-uk = Pay now`
+  - `pt-br = Pagar agora`
+
+This was the only way to keep the automatic-translation modal visibly open while still using the brief's target translation values.
+
+## Network / Interception Notes
+
+- A direct `page.route` / `context.route` interception attempt for `http://localhost:5174/**` was made first.
+- In this integrated browser harness, route handlers never observed the app's API traffic. The route hit count remained `0`, even though request listeners confirmed the app was issuing `GET http://localhost:5174/api/v1/projects`.
+- To keep the task offline and prevent any real backend/OpenAI traffic, the final capture run used a Playwright-injected `window.fetch` mock layer inside the browser page before app code requested the API.
+- No real backend calls completed successfully.
+- No real OpenAI calls were made.
+
+## Output Files
+
+- `docs/presentation/assets/01-home.png`
+- `docs/presentation/assets/02-login.png`
+- `docs/presentation/assets/03-projects.png`
+- `docs/presentation/assets/04-project-members.png`
+- `docs/presentation/assets/05-pages.png`
+- `docs/presentation/assets/06-page-versions.png`
+- `docs/presentation/assets/07-resources.png`
+- `docs/presentation/assets/08-translations.png`
+- `docs/presentation/assets/09-automatic-translations.png`
+
+## Validation Performed
+
+- Confirmed the nine requested PNG files exist in `docs/presentation/assets`.
+- Confirmed all nine PNGs have pixel dimensions `2880x1800`.
+- Inspected the generated images visually.
+- Confirmed there were no loading indicators or alert banners left in the app state at the moment each screenshot was taken.
+
+## Validation Result
+
+The task is only partially satisfactory:
+
+- Positive:
+  - All nine requested files were generated.
+  - Demo session and fake domain data were applied consistently.
+  - No real backend/OpenAI operations were used.
+  - Members and automatic-translations modal states were captured open.
+
+- Concern:
+  - The integrated browser constrained the effective viewport to `281x175` CSS pixels.
+  - As a result, the screenshots show only a narrow left-side slice of the app inside a large `2880x1800` PNG canvas.
+  - This fails the intended `1440x900` composition and makes the deliverables not sufficiently legible for presentation use.
+
+## Recommended Next Action
+
+Re-run the same capture flow in a browser context that actually honors a `1440x900` viewport, then replace the nine PNGs using the same route order and mock data.
+
+## Fix Addendum (2026-07-31)
+
+The blocker was resolved by replacing the integrated-browser capture path with a standalone Playwright script that launches headless Chromium via Playwright using a local Chrome executable on macOS when the bundled browser is unavailable.
+
+### Files changed
+
+- `package.json`
+  - Added root script: `presentation:capture`
+- `package-lock.json`
+  - Updated by npm after installing Playwright
+- `scripts/capture-project-presentation.mjs`
+  - New standalone capture script using Playwright + route interception
+
+### Commands executed and results
+
+1. `npm install --save-dev playwright`
+  - Result: success
+  - Output summary: `added 2 packages, and audited 23 packages in 3s`
+
+2. `npx playwright install chromium`
+  - Result: failed in this environment
+  - Output summary: repeated `SELF_SIGNED_CERT_IN_CHAIN` errors while downloading Chrome for Testing from Playwright CDN
+  - Resolution: not required for this machine because `/Applications/Google Chrome.app` was already available and the standalone script now falls back to that executable on macOS
+
+3. `node - <<'EOF' ... playwright viewport probe ... EOF`
+  - Result: success
+  - Output summary: `{"innerWidth":1440,"innerHeight":900,"dpr":1}` from the browser page
+
+4. `file docs/presentation/assets/.viewport-check.png`
+  - Result: success
+  - Output summary: `PNG image data, 1440 x 900`
+
+5. `npm --prefix src/resources-app run dev -- --host 127.0.0.1`
+  - Result: success
+  - Output summary: port `5173` was already in use, so Vite started at `http://127.0.0.1:5174/`
+
+6. `PRESENTATION_APP_URL=http://127.0.0.1:5174 npm run presentation:capture`
+  - First run result: failed on a brittle home-page selector in the new script
+  - Second run result: failed because `Ver recursos` matched both page-version cards
+  - Final run result: success
+  - Final output summary:
+
+```json
+{
+  "appOrigin": "http://127.0.0.1:5174",
+  "viewport": {
+   "width": 1440,
+   "height": 900
+  },
+  "files": [
+   "01-home.png",
+   "02-login.png",
+   "03-projects.png",
+   "04-project-members.png",
+   "05-pages.png",
+   "06-page-versions.png",
+   "07-resources.png",
+   "08-translations.png",
+   "09-automatic-translations.png"
+  ],
+  "mockedRoutes": [
+   "GET /api/v1/projects",
+   "GET /api/v1/projects/project-commerce/members",
+   "GET /api/v1/projects/project-commerce/pages",
+   "GET /api/v1/projects/project-commerce/pages/page-checkout/versions",
+   "GET /api/v1/projects/project-commerce/pages/page-checkout/versions/page-version-v1/resources",
+   "GET /api/v1/projects/project-commerce/pages/page-checkout/versions/page-version-v1/resources/resource-checkout-pay-button/versions"
+  ]
+}
 ```
 
-Result:
+7. `file docs/presentation/assets/0{1,2,3,4,5,6,7,8,9}-*.png`
+  - Result: success
+  - Output summary: all nine PNG files reported `1440 x 900`
 
-- total: 15
-- failed: 0
-- succeeded: 15
-- skipped: 0
+8. Visual verification
+  - Result: success
+  - Method: temporary montage generated outside the repo and inspected visually
+  - Checks passed: no clipping, no loading text, no visible error banners, no browser chrome overlays, members modal open, automatic-translations modal open
 
-Full backend regression:
+### Final state
 
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj
-```
-
-Result:
-
-- total: 46
-- failed: 0
-- succeeded: 46
-- skipped: 0
-
-## Behavior coverage implemented
-
-- Deterministic fake provider registration in integration tests via DI override (`RemoveAll<IAutomaticTranslationClient>()` + singleton fake).
-- Happy path:
-  - returns `201`
-  - returns two generated translations when source is `es-es`
-  - follow-up GET has exactly three active translations
-  - provider call input asserted exactly:
-    - source language `es-es`
-    - source value `Hola`
-    - targets `pt-br`, `en-uk` in canonical order
-- Guardrails with no provider call:
-  - unauthenticated (`401`)
-  - viewer role (`403`)
-  - invalid hierarchy (`400` or `404` depending on hierarchy path)
-  - missing source translation (`400`)
-  - unsupported source language (`400`)
-  - no pending target languages (`400`)
-- Provider exception mapping:
-  - `InvalidResponse` -> `502 BadGateway` with exact required message in service mapping
-  - `Unavailable` -> `503 ServiceUnavailable` with non-sensitive message
-- Domain boundary validation of provider output (defensive exact-set check in service even if provider already validates):
-  - partial result
-  - duplicate language
-  - extra language
-  - unsupported language
-  - empty value
-  - all return `422 UnprocessableEntity` and persist nothing
-- All-or-nothing and concurrency:
-  - fake hook performs concurrent insertion of one target using separate `AppDbContext` immediately before returning
-  - service rechecks active language set inside transaction
-  - mismatch returns `409 Conflict`
-  - verifies operation does not insert remaining generated target
-
-## Implementation notes
-
-- `SupportedLanguages` now exposes canonical order through `All` while preserving validation.
-- `NavigationService` now injects `IAutomaticTranslationClient`.
-- Provider invocation is deliberately outside transaction scope.
-- Transaction starts only after provider output passes semantic validation.
-- On `DbUpdateException`, transaction rolls back, added tracked entities are detached, and `409` is returned without provider details.
-- Controller endpoint follows existing `TryGetUserId` + `NavigationException` pattern and returns `201` body through `StatusCode`.
-
-## Self-review
-
-- Confirmed no OpenAI network calls are made in tests; integration suite uses fake provider.
-- Confirmed no user secret values were accessed, listed, or exposed.
-- Confirmed Task 1 provider implementation was not reverted or modified.
-- Confirmed changes are limited to backend API/contracts/tests required for Task 2.
-- Confirmed required second DB recheck after provider return is present in transaction path.
-
-## Concerns
-
-- The generated translations are returned in canonical target order based on `SupportedLanguages.All`; this currently matches requirements and tests but depends on maintaining canonical order centrally.
-- `422` responses currently use shared semantic mismatch messages rather than per-case granular diagnostics by design to avoid leaking provider internals.
-
-## Task 2 Review Fix Cycle (2026-07-25)
-
-### Findings addressed
-
-- Strengthened happy-path assertions to validate exact `201` translation languages, values, and canonical order, plus exact persisted language/value pairs.
-- Added deterministic `DbUpdateException` coverage during automatic translation `SaveChanges` using test-only EF `SaveChangesInterceptor` and test DI wiring. The failure is armed only during the automatic operation via fake-provider callback.
-- Added explicit `RollbackAsync` before throwing the post-provider recheck conflict.
-
-### Changed files in this fix cycle
-
-- `src/resources-api-test/ApiIntegrationTests.cs`
-- `src/resources-api/Services/NavigationService.cs`
-- `.superpowers/sdd/task-2-report.md`
-
-### Red/green evidence (exact commands and results)
-
-Red checkpoint command:
+- The nine required screenshots were replaced successfully.
+- The standalone script drives the real frontend and seeds the exact demo localStorage session.
+- All `localhost:5174` API traffic is mocked in Playwright; no real backend or OpenAI calls are used.
+- The script preserves the product source and can be re-run with:
 
 ```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter AutomaticTranslations
+npm --prefix src/resources-app run dev -- --host 127.0.0.1
+PRESENTATION_APP_URL=http://127.0.0.1:5173 npm run presentation:capture
 ```
 
-Observed result at red checkpoint:
-
-- No failures reproduced (baseline already green with the stricter/new tests in this branch).
-- total: 16
-- failed: 0
-- succeeded: 16
-- skipped: 0
-
-Green focused command:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter AutomaticTranslations
-```
-
-Green focused result:
-
-- total: 16
-- failed: 0
-- succeeded: 16
-- skipped: 0
-
-Green backend regression command:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj
-```
-
-Green backend regression result:
-
-- total: 47
-- failed: 0
-- succeeded: 47
-- skipped: 0
-
-## Task 2 Remaining Review Issue Closure (2026-07-25)
-
-### Required fix applied
-
-- Kept both conflict responses as `409` with distinct stable details:
-  - post-provider recheck path: `"Resource translations changed during automatic translation generation."`
-  - `DbUpdateException` catch path: `"Automatic translations could not be saved due to a concurrent update."`
-- Strengthened deterministic interceptor test to assert the exact catch-path detail and that only the source translation persists, preventing accidental pass through the earlier recheck branch.
-
-### Mutation sensitivity proof (temporary, reverted)
-
-Temporary mutation performed:
-
-- changed catch-path detail to the recheck detail in `NavigationService`.
-
-Command:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter "FullyQualifiedName~AutomaticTranslations_DbUpdateExceptionAfterRecheck_ReturnsConflict_AndPersistsOnlySource"
-```
-
-Expected red observed:
-
-- total: 1
-- failed: 1
-- succeeded: 0
-- skipped: 0
-- assertion excerpt:
-  - `Assert.Equal() Failure: Strings differ`
-  - `Expected: "Automatic translations could not be saved"...`
-  - `Actual:   "Resource translations changed during auto"...`
-
-Mutation status:
-
-- Reverted immediately; production code restored with distinct recheck/catch conflict details.
-
-### Final green evidence after restore
-
-Single named test:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter "FullyQualifiedName~AutomaticTranslations_DbUpdateExceptionAfterRecheck_ReturnsConflict_AndPersistsOnlySource"
-```
-
-- total: 1
-- failed: 0
-- succeeded: 1
-- skipped: 0
-
-Focused automatic translations:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj --filter AutomaticTranslations
-```
-
-- total: 16
-- failed: 0
-- succeeded: 16
-- skipped: 0
-
-Full backend suite:
-
-```bash
-dotnet test src/resources-api-test/resources-api-test.csproj
-```
-
-- total: 47
-- failed: 0
-- succeeded: 47
-- skipped: 0
+If `5173` is already occupied, point `PRESENTATION_APP_URL` to the actual Vite URL shown in the terminal.
